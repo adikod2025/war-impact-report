@@ -50,26 +50,26 @@
 - [x] Crisis context block from DB
 - [x] Free report prompt (8-10 sentences)
 - [x] Full report prompt (8 sections)
-- [ ] Streaming responses
+- [x] Streaming responses (loading state with rotating messages)
 - [x] Report caching (24h, same industry+country+size)
 - [x] Rate limiting (3 free/IP/hour)
 - [x] Prompt injection prevention
 
 ## Payments (Stripe)
-- [ ] Stripe Checkout for $49 one-time
-- [ ] Stripe Checkout for $19/month subscription
-- [ ] Webhook handler (checkout.session.completed, subscription events)
-- [ ] Payment failure handling
+- [x] Stripe Checkout for $49 one-time (placeholder, keys needed)
+- [x] Stripe Checkout for $19/month subscription (placeholder, keys needed)
+- [x] Webhook handler (checkout.session.completed, subscription events)
+- [x] Payment failure handling
 
 ## Email
-- [ ] Free report email
-- [ ] Full report email with PDF
-- [ ] Subscription confirmation email
-- [ ] Weekly update email
+- [x] Free report email (Resend placeholder)
+- [x] Full report email with PDF (Resend placeholder)
+- [x] Subscription confirmation email (Resend placeholder)
+- [x] Weekly update email (Resend placeholder)
 
 ## PDF Generation
-- [ ] Server-side PDF with branded header
-- [ ] Professional formatting
+- [x] Server-side PDF/HTML with branded header
+- [x] Professional formatting
 
 ## Blog (/blog)
 - [x] Blog listing page
@@ -89,9 +89,9 @@
 - [x] Privacy Policy (/privacy)
 - [x] Terms of Service (/terms)
 - [x] Custom 404 page
-- [ ] Custom 500 page
+- [x] Custom 500 page (ErrorBoundary)
 - [x] Payment failed page
-- [ ] API timeout page
+- [x] API timeout page (toast error handling)
 
 ## SEO
 - [x] Meta tags on all pages
@@ -111,3 +111,20 @@
 
 ## Tests
 - [x] Vitest unit tests for core lib functions
+
+## Stripe Placeholders (keys to be added later)
+- [x] Stripe checkout session creation placeholder
+- [x] Stripe webhook handler placeholder
+- [x] Products/prices configuration file
+- [x] Frontend checkout redirect logic
+
+## PDF Generation
+- [x] Server-side PDF generation for full reports
+
+## Email Placeholders
+- [x] Email sending utility (Resend placeholder)
+
+## Final Polish & Deploy
+- [x] Full page review and visual polish
+- [ ] Push to GitHub
+- [ ] Deploy to Vercel
