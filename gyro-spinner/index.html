@@ -405,14 +405,6 @@
     }
   }
 
-  /** Nearest planned index for a free-hand (manual) shot. */
-  function nearestIndex(total, count, direction) {
-    const step = 360 / count;
-    const dir = direction === 0 ? (total >= 0 ? 1 : -1) : direction;
-    const idx = Math.round((dir * total) / step);
-    return ((idx % count) + count) % count;
-  }
-
   /** Evenness metric: worst deviation from the ideal even spacing, in degrees. */
   function maxGapError(angles, count) {
     if (angles.length < 2) return 0;
@@ -510,8 +502,6 @@
    * ===================================================================== */
 
   const $ = (id) => document.getElementById(id);
-  const isTest = /(?:\?|&)test=1(?:&|$)/.test(location.search);
-
   function showScreen(name) {
     for (const s of document.querySelectorAll(".screen")) s.classList.toggle("active", s.id === name);
     ui.screen = name;
@@ -1193,11 +1183,10 @@
    * ===================================================================== */
 
   window.__gyro = {
-    core: { angleDelta, norm360, orientationAxes, headingFromOrientation, RotationTracker, ShotPlan, nearestIndex, maxGapError, crc32, makeZip },
+    core: { angleDelta, norm360, orientationAxes, headingFromOrientation, RotationTracker, ShotPlan, maxGapError, crc32, makeZip },
     settings: settings,
     state: state,
     ui: ui,
-    isTest: isTest,
     snapshot() {
       return {
         screen: ui.screen,

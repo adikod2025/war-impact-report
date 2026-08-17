@@ -166,29 +166,23 @@ test('ShotPlan.remaining counts down to the next marker', async ({ page }) => {
   expect(r.next).toBe(2);
 });
 
-test('nearestIndex and maxGapError report set quality', async ({ page }) => {
+test('maxGapError reports how even a finished set is', async ({ page }) => {
   const r = await page.evaluate(() => {
-    const { nearestIndex, maxGapError } = window.__gyro.core;
+    const { maxGapError } = window.__gyro.core;
     const perfect = [...Array(24).keys()].map((i) => i * 15);
     const sloppy = perfect.slice();
     sloppy[5] = 79; // 4 deg late
     return {
-      n0: nearestIndex(0, 24, 1),
-      n1: nearestIndex(14.6, 24, 1),
-      n2: nearestIndex(-30, 24, -1),
-      wrap: nearestIndex(361, 24, 1),
       perfect: maxGapError(perfect, 24),
       sloppy: maxGapError(sloppy, 24),
       single: maxGapError([0], 24),
+      empty: maxGapError([], 24),
     };
   });
-  expect(r.n0).toBe(0);
-  expect(r.n1).toBe(1);
-  expect(r.n2).toBe(2);
-  expect(r.wrap).toBe(0);
   expect(r.perfect).toBeCloseTo(0, 6);
   expect(r.sloppy).toBeCloseTo(4, 6);
   expect(r.single).toBe(0);
+  expect(r.empty).toBe(0);
 });
 
 test('crc32 matches the reference vector and makeZip writes a valid archive header', async ({ page }) => {
