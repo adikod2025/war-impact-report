@@ -1,0 +1,1226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#07090d">
+<meta name="color-scheme" content="dark">
+<title>Gyro Spinner — 360° Capture</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='42' fill='none' stroke='%2300e5a0' stroke-width='8' stroke-dasharray='180 100'/%3E%3Ccircle cx='50' cy='8' r='9' fill='%2300e5a0'/%3E%3C/svg%3E">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root {
+    --bg: #07090d;
+    --panel: #11151d;
+    --panel-2: #171d27;
+    --line: #262e3b;
+    --text: #eef2f7;
+    --muted: #8d98a9;
+    --accent: #00e5a0;
+    --accent-dim: #0b7a5b;
+    --warn: #ffb020;
+    --danger: #ff4d5e;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+  }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font: 400 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  body { overflow: hidden; }
+  #app { position: fixed; inset: 0; }
+  .screen { position: absolute; inset: 0; display: none; flex-direction: column; }
+  .screen.active { display: flex; }
+
+  /* ---------- Setup ---------- */
+  #setup { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: calc(var(--safe-t) + 18px) 18px calc(var(--safe-b) + 24px); }
+  .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+  .brand svg { width: 30px; height: 30px; flex: none; }
+  h1 { font-size: 21px; letter-spacing: -0.3px; margin: 0; font-weight: 650; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 6px 0 18px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-bottom: 12px; }
+  .card > .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 10px; font-weight: 600; }
+  .hint { font-size: 12.5px; color: var(--muted); margin-top: 9px; line-height: 1.45; }
+  .seg { display: grid; gap: 8px; }
+  .seg.cols-4 { grid-template-columns: repeat(4, 1fr); }
+  .seg.cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .seg.cols-2 { grid-template-columns: repeat(2, 1fr); }
+  .opt {
+    appearance: none; -webkit-appearance: none; border: 1px solid var(--line);
+    background: var(--panel-2); color: var(--text); border-radius: 12px;
+    padding: 11px 6px; font: inherit; font-size: 15px; text-align: center; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 56px; justify-content: center;
+  }
+  .opt small { font-size: 11px; color: var(--muted); line-height: 1.2; }
+  .opt[aria-pressed="true"] { background: rgba(0,229,160,.14); border-color: var(--accent); color: var(--accent); }
+  .opt[aria-pressed="true"] small { color: var(--accent); opacity: .85; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; }
+  .row + .row { border-top: 1px solid var(--line); }
+  .row .t { font-size: 15px; }
+  .row .d { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .switch { position: relative; width: 50px; height: 30px; flex: none; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); cursor: pointer; padding: 0; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--muted); transition: transform .16s ease, background .16s ease; }
+  .switch[aria-pressed="true"] { background: rgba(0,229,160,.2); border-color: var(--accent); }
+  .switch[aria-pressed="true"]::after { transform: translateX(20px); background: var(--accent); }
+  .btn {
+    display: block; width: 100%; border: none; border-radius: 16px; padding: 17px;
+    font: inherit; font-size: 17px; font-weight: 650; cursor: pointer;
+    background: var(--accent); color: #04150f;
+  }
+  .btn:active { transform: scale(.99); }
+  .btn.ghost { background: var(--panel); color: var(--text); border: 1px solid var(--line); }
+  .btn.ghost:disabled { opacity: .45; }
+  .btn[disabled] { opacity: .6; }
+  .err { display: none; background: rgba(255,77,94,.12); border: 1px solid rgba(255,77,94,.45); color: #ffc2c8; border-radius: 12px; padding: 11px 13px; font-size: 13.5px; margin-bottom: 12px; line-height: 1.45; }
+  .err.show { display: block; }
+  .err b { color: #fff; }
+
+  /* ---------- Live ---------- */
+  #live { background: #000; }
+  #video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #000; }
+  #video.hidden { display: none; }
+  #guidebg { position: absolute; inset: 0; background: radial-gradient(120% 90% at 50% 20%, #16202c 0%, #07090d 70%); display: none; }
+  #guidebg.show { display: block; }
+  #dial { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); touch-action: none; }
+  #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+  #flash.fire { animation: fl .28s ease-out; }
+  @keyframes fl { 0% { opacity: .85; } 100% { opacity: 0; } }
+
+  .hud { position: absolute; left: 0; right: 0; pointer-events: none; }
+  .hud.top { top: calc(var(--safe-t) + 10px); display: flex; gap: 8px; padding: 0 12px; align-items: flex-start; }
+  .chip {
+    background: rgba(7,9,13,.62); border: 1px solid rgba(255,255,255,.12); border-radius: 11px;
+    padding: 7px 10px; font-size: 12px; color: var(--text);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    font-variant-numeric: tabular-nums;
+  }
+  .chip b { font-size: 15px; font-weight: 650; display: block; line-height: 1.2; }
+  .chip span { color: var(--muted); font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; }
+  .chip.grow { flex: 1; }
+  .chip.alert { border-color: var(--warn); color: var(--warn); }
+  .chip.alert span { color: var(--warn); opacity: .8; }
+
+  #banner {
+    position: absolute; left: 12px; right: 12px; top: calc(var(--safe-t) + 74px);
+    background: rgba(255,176,32,.92); color: #221600; border-radius: 12px; padding: 9px 12px;
+    font-size: 13.5px; font-weight: 600; text-align: center; display: none;
+  }
+  #banner.show { display: block; }
+  #banner.bad { background: rgba(255,77,94,.94); color: #2a0004; }
+  #banner.good { background: rgba(0,229,160,.92); color: #04150f; }
+
+  #countdown {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    font-size: 108px; font-weight: 700; color: #fff; text-shadow: 0 4px 40px rgba(0,0,0,.6);
+    font-variant-numeric: tabular-nums; pointer-events: none;
+  }
+  #countdown.show { display: flex; }
+
+  .hud.bottom {
+    bottom: calc(var(--safe-b) + 14px); display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 0 18px; pointer-events: auto;
+  }
+  .mini {
+    background: rgba(7,9,13,.62); border: 1px solid rgba(255,255,255,.14); color: var(--text);
+    border-radius: 14px; padding: 12px 14px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); min-width: 84px;
+  }
+  .mini.danger { color: var(--danger); border-color: rgba(255,77,94,.5); }
+  #shutter {
+    width: 74px; height: 74px; border-radius: 50%; border: 4px solid rgba(255,255,255,.85);
+    background: rgba(255,255,255,.25); cursor: pointer; padding: 0; flex: none;
+  }
+  #shutter:active { background: rgba(255,255,255,.6); }
+  #shutter.hidden { visibility: hidden; }
+
+  /* ---------- Results ---------- */
+  #results { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: calc(var(--safe-t) + 16px) 14px calc(var(--safe-b) + 20px); }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 12px 0 16px; }
+  .thumb { position: relative; aspect-ratio: 3/4; border-radius: 9px; overflow: hidden; background: var(--panel-2); border: 1px solid var(--line); }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; -webkit-user-select: none; -webkit-touch-callout: default; }
+  .thumb .tag { position: absolute; left: 0; bottom: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,.8)); color: #fff; font-size: 10px; padding: 10px 5px 4px; font-variant-numeric: tabular-nums; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 6px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px; text-align: center; }
+  .stat b { display: block; font-size: 19px; font-variant-numeric: tabular-nums; }
+  .stat span { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+  .actions { display: grid; gap: 9px; margin-top: 4px; }
+  a.dl { display: none; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ============ SETUP ============ -->
+  <section id="setup" class="screen active">
+    <div class="brand">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="40" fill="none" stroke="#00e5a0" stroke-width="7" stroke-dasharray="170 90" stroke-linecap="round"/><circle cx="50" cy="10" r="8" fill="#00e5a0"/></svg>
+      <h1>Gyro Spinner</h1>
+    </div>
+    <p class="sub">Spin your iPhone on its axis — the gyroscope fires the shutter at perfectly even angles for a full 360° set.</p>
+
+    <div id="setupError" class="err"></div>
+
+    <div class="card">
+      <div class="label">Shots per 360°</div>
+      <div class="seg cols-4" id="countSeg">
+        <button class="opt" data-count="12" aria-pressed="false">12<small>30°</small></button>
+        <button class="opt" data-count="24" aria-pressed="true">24<small>15°</small></button>
+        <button class="opt" data-count="36" aria-pressed="false">36<small>10°</small></button>
+        <button class="opt" data-count="72" aria-pressed="false">72<small>5°</small></button>
+      </div>
+      <p class="hint">24 shots suits most photogrammetry / turntable sets. Use 36–72 for stitched panoramas.</p>
+    </div>
+
+    <div class="card">
+      <div class="label">Mode</div>
+      <div class="seg cols-3" id="modeSeg">
+        <button class="opt" data-mode="auto" aria-pressed="true">Auto<small>gyro fires</small></button>
+        <button class="opt" data-mode="manual" aria-pressed="false">Manual<small>you tap</small></button>
+        <button class="opt" data-mode="guide" aria-pressed="false">Guide<small>no camera</small></button>
+      </div>
+      <p class="hint" id="modeHint">Auto: the shutter fires by itself every time the phone rotates one step. Just spin steadily.</p>
+    </div>
+
+    <div class="card">
+      <div class="label">Options</div>
+      <div class="row">
+        <div><div class="t">Beep on each shot</div><div class="d">Audio cue so you can look away from the screen</div></div>
+        <button class="switch" id="optSound" aria-pressed="true" aria-label="Beep on each shot"></button>
+      </div>
+      <div class="row">
+        <div><div class="t">3-second lead-in</div><div class="d">Countdown before the first frame</div></div>
+        <button class="switch" id="optLead" aria-pressed="true" aria-label="Lead-in countdown"></button>
+      </div>
+      <div class="row">
+        <div><div class="t">Lock exposure &amp; focus</div><div class="d">Keeps brightness even across the set (if supported)</div></div>
+        <button class="switch" id="optLock" aria-pressed="true" aria-label="Lock exposure and focus"></button>
+      </div>
+      <div class="row">
+        <div><div class="t">Keep screen awake</div><div class="d">Prevents the phone sleeping mid-spin</div></div>
+        <button class="switch" id="optWake" aria-pressed="true" aria-label="Keep screen awake"></button>
+      </div>
+    </div>
+
+    <button class="btn" id="startBtn">Allow sensors &amp; start</button>
+    <p class="hint" style="text-align:center">iOS asks for Motion &amp; Camera access on the next tap. Hold the phone upright, spin smoothly, and keep the subject centred.</p>
+  </section>
+
+  <!-- ============ LIVE ============ -->
+  <section id="live" class="screen">
+    <div id="guidebg"></div>
+    <video id="video" playsinline autoplay muted></video>
+    <canvas id="dial"></canvas>
+    <div id="flash"></div>
+
+    <div class="hud top">
+      <div class="chip"><span>Shots</span><b id="hudShots">0/24</b></div>
+      <div class="chip"><span>Rotated</span><b id="hudAngle">0°</b></div>
+      <div class="chip grow" id="hudSpeedChip"><span>Speed</span><b id="hudSpeed">0°/s</b></div>
+      <div class="chip" id="hudLevelChip"><span>Level</span><b id="hudLevel">OK</b></div>
+    </div>
+
+    <div id="banner"></div>
+    <div id="countdown"></div>
+
+    <div class="hud bottom">
+      <button class="mini danger" id="abortBtn">Cancel</button>
+      <button id="shutter" class="hidden" aria-label="Take shot"></button>
+      <button class="mini" id="finishBtn">Finish</button>
+    </div>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section id="results" class="screen">
+    <div class="brand"><h1 id="resTitle">360° set complete</h1></div>
+    <p class="sub" id="resSub"></p>
+    <div class="stats">
+      <div class="stat"><b id="statShots">0</b><span>Frames</span></div>
+      <div class="stat"><b id="statSpread">0°</b><span>Rotated</span></div>
+      <div class="stat"><b id="statEven">0°</b><span>Max gap</span></div>
+    </div>
+    <div class="grid" id="grid"></div>
+    <div class="actions">
+      <button class="btn" id="zipBtn">Download all as .zip</button>
+      <button class="btn ghost" id="againBtn">Shoot another set</button>
+      <button class="btn ghost" id="backBtn">Back to settings</button>
+    </div>
+    <p class="hint" id="saveHint">Tap and hold any frame to save it straight to Photos. The .zip lands in Files → Downloads. Frames are saved at the full camera frame, which is slightly wider than the on-screen preview.</p>
+    <a id="dlAnchor" class="dl"></a>
+  </section>
+</div>
+
+<script>
+"use strict";
+(function () {
+  /* =====================================================================
+   *  1. Pure core — deterministic, unit-testable, no DOM
+   * ===================================================================== */
+
+  const DEG = 180 / Math.PI;
+
+  /** Shortest signed difference b-a, wrapped to (-180, 180]. */
+  function angleDelta(a, b) {
+    let d = (b - a) % 360;
+    if (d > 180) d -= 360;
+    if (d <= -180) d += 360;
+    return d;
+  }
+
+  /** Normalise to [0, 360). */
+  function norm360(a) {
+    return ((a % 360) + 360) % 360;
+  }
+
+  /**
+   * Device orientation (W3C alpha/beta/gamma, ZXY intrinsic) -> world-frame
+   * unit vectors for the two axes we care about.
+   *   back  = where the rear camera points  (device -Z)
+   *   top   = where the top edge points     (device +Y)
+   * World frame: X east, Y north, Z up.
+   */
+  function orientationAxes(alpha, beta, gamma) {
+    const a = alpha / DEG, b = beta / DEG, g = gamma / DEG;
+    const cZ = Math.cos(a), sZ = Math.sin(a);
+    const cX = Math.cos(b), sX = Math.sin(b);
+    const cY = Math.cos(g), sY = Math.sin(g);
+    // R = Rz(alpha) . Rx(beta) . Ry(gamma)
+    const m13 = cY * sZ * sX + cZ * sY;
+    const m23 = sZ * sY - cZ * cY * sX;
+    const m33 = cX * cY;
+    const m12 = -cX * sZ;
+    const m22 = cZ * cX;
+    const m32 = sX;
+    return {
+      back: { x: -m13, y: -m23, z: -m33 },
+      top: { x: m12, y: m22, z: m32 }
+    };
+  }
+
+  /**
+   * Compass-style azimuth (0 = north, increasing clockwise) of the direction
+   * the rear camera faces. Falls back to the device's top edge when the phone
+   * is lying flat and the camera axis is close to vertical (degenerate).
+   * Returns null when neither axis has a usable horizontal projection.
+   */
+  function headingFromOrientation(alpha, beta, gamma) {
+    if (alpha == null || beta == null || gamma == null) return null;
+    const ax = orientationAxes(alpha, beta, gamma);
+    const backH = Math.hypot(ax.back.x, ax.back.y);
+    const topH = Math.hypot(ax.top.x, ax.top.y);
+    let v, source;
+    if (backH >= 0.25) { v = ax.back; source = "back"; }
+    else if (topH >= 0.25) { v = ax.top; source = "top"; }
+    else return null;
+    return { heading: norm360(Math.atan2(v.x, v.y) * DEG), source: source };
+  }
+
+  /**
+   * Accumulates unwrapped rotation across the 0/360 seam and estimates
+   * angular speed. Switching heading source re-anchors instead of
+   * accumulating a bogus jump.
+   */
+  class RotationTracker {
+    constructor() { this.reset(); }
+    reset() {
+      this.total = 0;
+      this.last = null;
+      this.lastT = null;
+      this.source = null;
+      this.speed = 0;
+      this.samples = 0;
+    }
+    /** @param {number} heading 0..360 @param {number} t ms @param {string} [source] */
+    update(heading, t, source) {
+      this.samples++;
+      if (this.last === null || (source && source !== this.source)) {
+        this.last = heading; this.lastT = t; this.source = source || null;
+        return { total: this.total, speed: this.speed, delta: 0 };
+      }
+      const d = angleDelta(this.last, heading);
+      const dt = Math.max(1, t - this.lastT);
+      // Reject impossible jumps (>1500 deg/s) — sensor glitches only.
+      if (Math.abs(d) / (dt / 1000) > 1500) {
+        this.last = heading; this.lastT = t;
+        return { total: this.total, speed: this.speed, delta: 0 };
+      }
+      this.total += d;
+      const inst = Math.abs(d) / (dt / 1000);
+      this.speed = this.speed * 0.75 + inst * 0.25; // light smoothing
+      this.last = heading; this.lastT = t;
+      return { total: this.total, speed: this.speed, delta: d };
+    }
+  }
+
+  /**
+   * Decides which shot index is due. Direction locks in from the first
+   * meaningful movement, so the user can spin either way. Wobbling back and
+   * forth never re-triggers an already-taken shot.
+   */
+  class ShotPlan {
+    constructor(count, direction) {
+      this.count = count;
+      this.step = 360 / count;
+      this.direction = direction || 0; // 0 = auto-detect, 1 = CW, -1 = CCW
+      this.next = 0;
+      this.taken = [];
+      this.maxProgress = 0;
+    }
+    get done() { return this.next >= this.count; }
+    /** @param {number} total unwrapped rotation, signed @returns {number[]} newly due indices */
+    update(total) {
+      if (this.done) return [];
+      if (this.direction === 0) {
+        if (Math.abs(total) < 4) {
+          // Before movement is unambiguous only shot #0 (the origin) can fire.
+          return this.next === 0 ? (this.next = 1, this.taken.push(0), [0]) : [];
+        }
+        this.direction = total > 0 ? 1 : -1;
+      }
+      const progress = this.direction * total;
+      if (progress > this.maxProgress) this.maxProgress = progress;
+      const due = [];
+      while (this.next < this.count && progress >= this.next * this.step - 1e-9) {
+        due.push(this.next);
+        this.taken.push(this.next);
+        this.next++;
+      }
+      return due;
+    }
+    /** Signed degrees still to travel before the next shot. */
+    remaining(total) {
+      if (this.done) return 0;
+      const dir = this.direction === 0 ? 1 : this.direction;
+      return Math.max(0, this.next * this.step - dir * total);
+    }
+  }
+
+  /** Nearest planned index for a free-hand (manual) shot. */
+  function nearestIndex(total, count, direction) {
+    const step = 360 / count;
+    const dir = direction === 0 ? (total >= 0 ? 1 : -1) : direction;
+    const idx = Math.round((dir * total) / step);
+    return ((idx % count) + count) % count;
+  }
+
+  /** Evenness metric: worst deviation from the ideal even spacing, in degrees. */
+  function maxGapError(angles, count) {
+    if (angles.length < 2) return 0;
+    const ideal = 360 / count;
+    let worst = 0;
+    const sorted = angles.slice().sort((a, b) => a - b);
+    for (let i = 1; i < sorted.length; i++) {
+      worst = Math.max(worst, Math.abs(Math.abs(sorted[i] - sorted[i - 1]) - ideal));
+    }
+    return worst;
+  }
+
+  /* ---------- store-only ZIP writer (no dependencies) ---------- */
+  const CRC_TABLE = (function () {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+
+  function crc32(buf) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function dosTime(d) {
+    const time = ((d.getHours() & 31) << 11) | ((d.getMinutes() & 63) << 5) | ((d.getSeconds() / 2) & 31);
+    const date = (((d.getFullYear() - 1980) & 127) << 9) | (((d.getMonth() + 1) & 15) << 5) | (d.getDate() & 31);
+    return { time: time & 0xFFFF, date: date & 0xFFFF };
+  }
+
+  /** @param {{name:string,data:Uint8Array}[]} files @returns {Blob} */
+  function makeZip(files, when) {
+    const stamp = dosTime(when || new Date());
+    const enc = new TextEncoder();
+    const chunks = [];
+    const central = [];
+    let offset = 0;
+    for (const f of files) {
+      const nameBytes = enc.encode(f.name);
+      const crc = crc32(f.data);
+      const local = new DataView(new ArrayBuffer(30));
+      local.setUint32(0, 0x04034b50, true);
+      local.setUint16(4, 20, true);            // version needed
+      local.setUint16(6, 0x0800, true);        // UTF-8 filename flag
+      local.setUint16(8, 0, true);             // method: store
+      local.setUint16(10, stamp.time, true);
+      local.setUint16(12, stamp.date, true);
+      local.setUint32(14, crc, true);
+      local.setUint32(18, f.data.length, true);
+      local.setUint32(22, f.data.length, true);
+      local.setUint16(26, nameBytes.length, true);
+      local.setUint16(28, 0, true);
+      chunks.push(new Uint8Array(local.buffer), nameBytes, f.data);
+
+      const cd = new DataView(new ArrayBuffer(46));
+      cd.setUint32(0, 0x02014b50, true);
+      cd.setUint16(4, 20, true);
+      cd.setUint16(6, 20, true);
+      cd.setUint16(8, 0x0800, true);
+      cd.setUint16(10, 0, true);
+      cd.setUint16(12, stamp.time, true);
+      cd.setUint16(14, stamp.date, true);
+      cd.setUint32(16, crc, true);
+      cd.setUint32(20, f.data.length, true);
+      cd.setUint32(24, f.data.length, true);
+      cd.setUint16(28, nameBytes.length, true);
+      cd.setUint16(30, 0, true);
+      cd.setUint16(32, 0, true);
+      cd.setUint16(34, 0, true);
+      cd.setUint16(36, 0, true);
+      cd.setUint32(38, 0, true);
+      cd.setUint32(42, offset, true);
+      central.push(new Uint8Array(cd.buffer), nameBytes);
+
+      offset += 30 + nameBytes.length + f.data.length;
+    }
+    let centralSize = 0;
+    for (const c of central) centralSize += c.length;
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true);
+    end.setUint16(8, files.length, true);
+    end.setUint16(10, files.length, true);
+    end.setUint32(12, centralSize, true);
+    end.setUint32(16, offset, true);
+    return new Blob([...chunks, ...central, new Uint8Array(end.buffer)], { type: "application/zip" });
+  }
+
+  /* =====================================================================
+   *  2. Small helpers
+   * ===================================================================== */
+
+  const $ = (id) => document.getElementById(id);
+  const isTest = /(?:\?|&)test=1(?:&|$)/.test(location.search);
+
+  function showScreen(name) {
+    for (const s of document.querySelectorAll(".screen")) s.classList.toggle("active", s.id === name);
+    ui.screen = name;
+  }
+
+  function setBanner(text, kind) {
+    const el = $("banner");
+    if (!text) { el.classList.remove("show"); return; }
+    el.textContent = text;
+    el.className = "banner show" + (kind ? " " + kind : "");
+    el.classList.add("show");
+  }
+
+  /* ---------- audio ---------- */
+  const audio = {
+    ctx: null,
+    async unlock() {
+      try {
+        const C = window.AudioContext || window.webkitAudioContext;
+        if (!C) return;
+        if (!this.ctx) this.ctx = new C();
+        if (this.ctx.state === "suspended") await this.ctx.resume();
+        // Silent tick primes the output chain on iOS.
+        const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+        g.gain.value = 0.0001; o.connect(g); g.connect(this.ctx.destination);
+        o.start(); o.stop(this.ctx.currentTime + 0.02);
+      } catch (e) { /* audio is a nicety, never fatal */ }
+    },
+    beep(freq, ms, vol) {
+      if (!settings.sound || !this.ctx) return;
+      try {
+        const t = this.ctx.currentTime;
+        const o = this.ctx.createOscillator(), g = this.ctx.createGain();
+        o.type = "sine"; o.frequency.value = freq || 880;
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(vol == null ? 0.28 : vol, t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + (ms || 90) / 1000);
+        o.connect(g); g.connect(this.ctx.destination);
+        o.start(t); o.stop(t + (ms || 90) / 1000 + 0.02);
+      } catch (e) {}
+    }
+  };
+
+  function buzz(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
+
+  /* =====================================================================
+   *  3. State
+   * ===================================================================== */
+
+  const settings = { count: 24, mode: "auto", sound: true, lead: true, lock: true, wake: true };
+
+  const ui = { screen: "setup" };
+
+  const state = {
+    running: false,
+    armed: false,          // countdown finished, capture live
+    tracker: new RotationTracker(),
+    plan: null,
+    startTotal: 0,
+    shots: [],             // {index, angle, blob, url, t}
+    lastEventAt: 0,
+    beta: 90, gamma: 0,
+    level: true,
+    tooFast: false,
+    stream: null,
+    frameSize: null,
+    wakeLock: null,
+    rafId: 0,
+    countdownTimer: 0,
+    sensorTimer: 0,
+    capturing: 0
+  };
+
+  const SPEED_LIMIT = 80;  // deg/s — beyond this frames smear
+  const LEVEL_ROLL = 8;    // deg
+  const LEVEL_PITCH = 14;  // deg
+
+  /* =====================================================================
+   *  4. Setup screen wiring
+   * ===================================================================== */
+
+  function bindSegment(container, attr, onPick) {
+    container.addEventListener("click", (e) => {
+      const btn = e.target.closest(".opt");
+      if (!btn) return;
+      for (const b of container.querySelectorAll(".opt")) b.setAttribute("aria-pressed", String(b === btn));
+      onPick(btn.dataset[attr]);
+    });
+  }
+
+  function bindSwitch(el, key) {
+    el.addEventListener("click", () => {
+      const v = el.getAttribute("aria-pressed") !== "true";
+      el.setAttribute("aria-pressed", String(v));
+      settings[key] = v;
+    });
+  }
+
+  const MODE_HINTS = {
+    auto: "Auto: the shutter fires by itself every time the phone rotates one step. Just spin steadily.",
+    manual: "Manual: the dial tells you when you have reached the next angle — you tap the shutter.",
+    guide: "Guide: no camera is used. The dial and beeps pace your spin while a separate camera or app shoots."
+  };
+
+  bindSegment($("countSeg"), "count", (v) => { settings.count = parseInt(v, 10); });
+  bindSegment($("modeSeg"), "mode", (v) => { settings.mode = v; $("modeHint").textContent = MODE_HINTS[v]; });
+  bindSwitch($("optSound"), "sound");
+  bindSwitch($("optLead"), "lead");
+  bindSwitch($("optLock"), "lock");
+  bindSwitch($("optWake"), "wake");
+
+  function setupError(html) {
+    const el = $("setupError");
+    if (!html) { el.classList.remove("show"); el.innerHTML = ""; return; }
+    el.innerHTML = html;
+    el.classList.add("show");
+  }
+
+  /* =====================================================================
+   *  5. Permissions, sensors, camera
+   * ===================================================================== */
+
+  async function requestMotionPermission() {
+    const D = window.DeviceOrientationEvent;
+    if (D && typeof D.requestPermission === "function") {
+      let res;
+      try {
+        res = await D.requestPermission();
+      } catch (e) {
+        throw new Error("Motion access could not be requested. Reload the page and tap Start again — iOS only allows the prompt directly from a tap.");
+      }
+      if (res !== "granted") {
+        throw new Error("Motion access was denied. Turn it on in <b>Settings → Apps → Safari → Motion &amp; Orientation Access</b>, then reload.");
+      }
+      const M = window.DeviceMotionEvent;
+      if (M && typeof M.requestPermission === "function") {
+        try { await M.requestPermission(); } catch (e) {}
+      }
+    }
+  }
+
+  function onOrientation(e) {
+    const now = performance.now();
+    state.lastEventAt = now;
+    const h = headingFromOrientation(e.alpha, e.beta, e.gamma);
+    if (e.beta != null) state.beta = e.beta;
+    if (e.gamma != null) state.gamma = e.gamma;
+    if (!h) return;
+    state.tracker.update(h.heading, now, h.source);
+    if (state.armed) evaluate();
+  }
+
+  function startSensors() {
+    window.addEventListener("deviceorientation", onOrientation, true);
+    // Absolute variant fires on some Androids; harmless duplicate elsewhere.
+    window.addEventListener("deviceorientationabsolute", onOrientation, true);
+  }
+
+  function stopSensors() {
+    window.removeEventListener("deviceorientation", onOrientation, true);
+    window.removeEventListener("deviceorientationabsolute", onOrientation, true);
+  }
+
+  async function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("This browser cannot open the camera. Use <b>Safari</b> on iOS (Chrome/Firefox on iOS cannot).");
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        },
+        audio: false
+      });
+    } catch (err) {
+      if (err && (err.name === "NotAllowedError" || err.name === "SecurityError")) {
+        throw new Error("Camera access was denied. Tap <b>aA</b> in the address bar → Website Settings → Camera → Allow, then reload.");
+      }
+      throw new Error("Could not open the camera (" + (err && err.name ? err.name : "unknown") + "). Close other apps using it and try again.");
+    }
+    state.stream = stream;
+    const video = $("video");
+    video.srcObject = stream;
+    try { await video.play(); } catch (e) {}
+    if (settings.lock) await tryLockExposure(stream);
+    return stream;
+  }
+
+  async function tryLockExposure(stream) {
+    try {
+      const track = stream.getVideoTracks()[0];
+      if (!track || !track.getCapabilities) return;
+      const caps = track.getCapabilities();
+      const advanced = {};
+      if (caps.exposureMode && caps.exposureMode.indexOf("manual") >= 0) advanced.exposureMode = "manual";
+      else if (caps.exposureMode && caps.exposureMode.indexOf("continuous") >= 0) advanced.exposureMode = "continuous";
+      if (caps.focusMode && caps.focusMode.indexOf("manual") >= 0) advanced.focusMode = "manual";
+      if (caps.whiteBalanceMode && caps.whiteBalanceMode.indexOf("manual") >= 0) advanced.whiteBalanceMode = "manual";
+      if (Object.keys(advanced).length) await track.applyConstraints({ advanced: [advanced] });
+    } catch (e) { /* Safari has no such controls — not fatal */ }
+  }
+
+  function stopCamera() {
+    if (state.stream) {
+      for (const t of state.stream.getTracks()) t.stop();
+      state.stream = null;
+    }
+    $("video").srcObject = null;
+  }
+
+  async function acquireWakeLock() {
+    if (!settings.wake) return;
+    try {
+      if (navigator.wakeLock && navigator.wakeLock.request) {
+        state.wakeLock = await navigator.wakeLock.request("screen");
+      }
+    } catch (e) {}
+  }
+
+  function releaseWakeLock() {
+    try { state.wakeLock && state.wakeLock.release(); } catch (e) {}
+    state.wakeLock = null;
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && state.running && !state.wakeLock) acquireWakeLock();
+  });
+
+  /* =====================================================================
+   *  6. Capture
+   * ===================================================================== */
+
+  const shotCanvas = document.createElement("canvas");
+
+  function grabFrame() {
+    const video = $("video");
+    const w = video.videoWidth, h = video.videoHeight;
+    if (!w || !h) return null;
+    state.frameSize = { w: w, h: h };
+    shotCanvas.width = w;
+    shotCanvas.height = h;
+    const ctx = shotCanvas.getContext("2d");
+    ctx.drawImage(video, 0, 0, w, h);
+    return shotCanvas;
+  }
+
+  function canvasToBlob(canvas) {
+    return new Promise((resolve) => {
+      if (canvas.toBlob) canvas.toBlob((b) => resolve(b), "image/jpeg", 0.92);
+      else {
+        const data = canvas.toDataURL("image/jpeg", 0.92).split(",")[1];
+        const bin = atob(data);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        resolve(new Blob([arr], { type: "image/jpeg" }));
+      }
+    });
+  }
+
+  function takeShot(index, angle) {
+    const record = { index: index, angle: angle, blob: null, url: null, t: Date.now() };
+    state.shots.push(record);
+    $("flash").classList.remove("fire");
+    void $("flash").offsetWidth;
+    $("flash").classList.add("fire");
+    audio.beep(index === 0 ? 660 : 980, 80);
+    buzz(20);
+    updateHud();
+
+    if (settings.mode === "guide") return Promise.resolve(record);
+
+    const canvas = grabFrame();
+    if (!canvas) {
+      record.error = "no-frame";
+      return Promise.resolve(record);
+    }
+    state.capturing++;
+    return canvasToBlob(canvas).then((blob) => {
+      record.blob = blob;
+      record.url = URL.createObjectURL(blob);
+      state.capturing--;
+      return record;
+    }).catch(() => { state.capturing--; return record; });
+  }
+
+  /** Called on every sensor sample once armed. */
+  function evaluate() {
+    const total = state.tracker.total - state.startTotal;
+    state.tooFast = state.tracker.speed > SPEED_LIMIT;
+    state.level = Math.abs(state.gamma) < LEVEL_ROLL && Math.abs(Math.abs(state.beta) - 90) < LEVEL_PITCH;
+
+    if (settings.mode === "manual") return;   // auto + guide both pace themselves
+    const due = state.plan.update(total);
+    if (due.length) {
+      const dir = state.plan.direction === 0 ? 1 : state.plan.direction;
+      for (const idx of due) takeShot(idx, norm360(dir * total));
+    }
+    if (state.plan.done) finish(true);
+  }
+
+  /* =====================================================================
+   *  7. Dial rendering
+   * ===================================================================== */
+
+  const dial = $("dial");
+  const dctx = dial.getContext("2d");
+  let dialSize = 0;
+
+  function sizeDial() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const size = Math.min(window.innerWidth, window.innerHeight) * 0.78;
+    dialSize = Math.round(size);
+    dial.style.width = dialSize + "px";
+    dial.style.height = dialSize + "px";
+    dial.width = Math.round(dialSize * dpr);
+    dial.height = Math.round(dialSize * dpr);
+    dctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener("resize", () => { if (ui.screen === "live") sizeDial(); });
+  window.addEventListener("orientationchange", () => { if (ui.screen === "live") setTimeout(sizeDial, 250); });
+
+  function drawDial() {
+    if (!state.running) return;
+    const S = dialSize, c = S / 2, R = S / 2 - 18;
+    dctx.clearRect(0, 0, S, S);
+    dctx.shadowColor = "rgba(0,0,0,0.5)";
+    dctx.shadowBlur = 6;                  // keeps the ring readable over a bright scene
+
+    const plan = state.plan;
+    const total = state.tracker.total - state.startTotal;
+    const dir = plan.direction === 0 ? 1 : plan.direction;
+    const progress = dir * total;
+    // The dial mirrors for a counter-clockwise spin so markers always sweep
+    // *toward* the pointer, matching what the eye sees in the real world.
+    const sweep = dir;
+
+    // Backing ring
+    dctx.lineWidth = 10;
+    dctx.strokeStyle = "rgba(255,255,255,0.13)";
+    dctx.beginPath(); dctx.arc(c, c, R, 0, Math.PI * 2); dctx.stroke();
+
+    // Progress arc — trails backwards from the pointer, covering the markers
+    // already shot, because the markers themselves are drawn world-fixed.
+    const frac = Math.max(0, Math.min(1, progress / 360));
+    if (frac > 0) {
+      dctx.strokeStyle = state.tooFast ? "#ffb020" : "#00e5a0";
+      dctx.lineCap = "round";
+      dctx.beginPath();
+      dctx.arc(c, c, R, -Math.PI / 2, -Math.PI / 2 - sweep * frac * Math.PI * 2, sweep > 0);
+      dctx.stroke();
+      dctx.lineCap = "butt";
+    }
+
+    // Target markers — world-fixed, so they sweep toward the top pointer.
+    for (let i = 0; i < plan.count; i++) {
+      const world = i * plan.step - progress;      // degrees ahead of the pointer
+      const a = (sweep * world - 90) * Math.PI / 180;
+      const taken = i < plan.next;
+      const rr = R;
+      const x = c + Math.cos(a) * rr, y = c + Math.sin(a) * rr;
+      dctx.beginPath();
+      dctx.arc(x, y, taken ? 5 : 3.5, 0, Math.PI * 2);
+      dctx.fillStyle = taken ? "#00e5a0" : "rgba(255,255,255,0.55)";
+      dctx.fill();
+    }
+
+    // Top pointer
+    dctx.fillStyle = state.tooFast ? "#ffb020" : "#ffffff";
+    dctx.beginPath();
+    dctx.moveTo(c, 6);
+    dctx.lineTo(c - 9, 22);
+    dctx.lineTo(c + 9, 22);
+    dctx.closePath();
+    dctx.fill();
+
+    // Centre readout — sits on a dark disc so it stays legible over bright scenes
+    const remaining = plan.remaining(total);
+    dctx.shadowBlur = 0;
+    const glow = dctx.createRadialGradient(c, c, 0, c, c, R * 0.72);
+    glow.addColorStop(0, "rgba(7,9,13,0.55)");
+    glow.addColorStop(0.7, "rgba(7,9,13,0.32)");
+    glow.addColorStop(1, "rgba(7,9,13,0)");
+    dctx.fillStyle = glow;
+    dctx.beginPath(); dctx.arc(c, c, R * 0.72, 0, Math.PI * 2); dctx.fill();
+    dctx.textAlign = "center";
+    dctx.textBaseline = "middle";
+    dctx.shadowColor = "rgba(0,0,0,0.65)";
+    dctx.shadowBlur = 10;
+    if (plan.done) {
+      dctx.fillStyle = "#00e5a0";
+      dctx.font = "600 30px -apple-system, system-ui, sans-serif";
+      dctx.fillText("Complete", c, c);
+    } else {
+      dctx.fillStyle = "#ffffff";
+      dctx.font = "700 " + Math.round(S * 0.17) + "px -apple-system, system-ui, sans-serif";
+      dctx.fillText(Math.round(remaining) + "°", c, c - 6);
+      dctx.fillStyle = "rgba(255,255,255,0.65)";
+      dctx.font = "500 13px -apple-system, system-ui, sans-serif";
+      dctx.fillText("to next shot", c, c + Math.round(S * 0.11));
+    }
+    dctx.shadowBlur = 0;
+
+    // Level bubble
+    const bx = c + Math.max(-1, Math.min(1, state.gamma / 25)) * (R * 0.55);
+    const by = c + R * 0.72 + Math.max(-1, Math.min(1, (Math.abs(state.beta) - 90) / 30)) * 18;
+    dctx.beginPath();
+    dctx.arc(c, c + R * 0.72, 26, 0, Math.PI * 2);
+    dctx.strokeStyle = "rgba(255,255,255,0.28)"; dctx.lineWidth = 2; dctx.stroke();
+    dctx.beginPath();
+    dctx.arc(bx, by, 8, 0, Math.PI * 2);
+    dctx.fillStyle = state.level ? "rgba(0,229,160,0.9)" : "rgba(255,176,32,0.95)";
+    dctx.fill();
+  }
+
+  function updateHud() {
+    const plan = state.plan;
+    if (!plan) return;
+    const total = state.tracker.total - state.startTotal;
+    const dir = plan.direction === 0 ? 1 : plan.direction;
+    $("hudShots").textContent = state.shots.length + "/" + plan.count;
+    $("hudAngle").textContent = Math.round(Math.max(0, dir * total)) + "°";
+    $("hudSpeed").textContent = Math.round(state.tracker.speed) + "°/s";
+    $("hudSpeedChip").classList.toggle("alert", state.tooFast);
+    $("hudLevel").textContent = state.level ? "OK" : "Tilt";
+    $("hudLevelChip").classList.toggle("alert", !state.level);
+
+    if (!state.armed) return;
+    if (state.tooFast) setBanner("Slow down — frames will blur", "");
+    else if (!state.level) setBanner("Hold the phone upright", "");
+    else setBanner("");
+  }
+
+  function loop() {
+    if (!state.running) return;
+    drawDial();
+    updateHud();
+    state.rafId = requestAnimationFrame(loop);
+  }
+
+  /* =====================================================================
+   *  8. Session lifecycle
+   * ===================================================================== */
+
+  async function start() {
+    const btn = $("startBtn");
+    btn.disabled = true;
+    btn.textContent = "Starting…";
+    setupError("");
+    try {
+      await audio.unlock();
+      await requestMotionPermission();
+      startSensors();
+      if (settings.mode !== "guide") await startCamera();
+      await acquireWakeLock();
+
+      state.running = true;
+      state.armed = false;
+      state.shots = [];
+      state.frameSize = null;
+      state.tracker.reset();
+      state.plan = new ShotPlan(settings.count, 0);
+      state.tooFast = false;
+      state.level = true;
+      setBanner("");
+
+      $("video").classList.toggle("hidden", settings.mode === "guide");
+      $("guidebg").classList.toggle("show", settings.mode === "guide");
+      $("shutter").classList.toggle("hidden", settings.mode !== "manual");
+      showScreen("live");
+      sizeDial();
+      loop();
+      watchSensorHealth();
+      await leadIn();
+    } catch (err) {
+      teardown();
+      setupError(err && err.message ? err.message : String(err));
+      showScreen("setup");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Allow sensors & start";
+    }
+  }
+
+  function watchSensorHealth() {
+    clearTimeout(state.sensorTimer);
+    state.sensorTimer = setTimeout(() => {
+      if (state.running && state.tracker.samples === 0) {
+        setBanner("No motion data — check Settings → Safari → Motion & Orientation Access", "bad");
+      }
+    }, 2500);
+  }
+
+  function leadIn() {
+    return new Promise((resolve) => {
+      const el = $("countdown");
+      if (!settings.lead) { el.classList.remove("show"); arm(); return resolve(); }
+      let n = 3;
+      el.textContent = String(n);
+      el.classList.add("show");
+      audio.beep(520, 90, 0.18);
+      state.countdownTimer = setInterval(() => {
+        n--;
+        if (n <= 0) {
+          clearInterval(state.countdownTimer);
+          el.classList.remove("show");
+          arm();
+          resolve();
+        } else {
+          el.textContent = String(n);
+          audio.beep(520, 90, 0.18);
+        }
+      }, 1000);
+    });
+  }
+
+  function arm() {
+    if (!state.running) return;
+    state.armed = true;
+    state.startTotal = state.tracker.total;
+    setBanner(settings.mode === "manual" ? "Tap the shutter at each marker" : "Spin steadily — shots fire on their own", "good");
+    setTimeout(() => { if (state.armed) setBanner(""); }, 2200);
+    if (settings.mode === "manual") manualShot();      // origin frame
+    else evaluate();                                   // fires shot #0 at the origin
+  }
+
+  function manualShot() {
+    if (!state.running || !state.armed || state.plan.done) return;
+    const total = state.tracker.total - state.startTotal;
+    if (state.plan.direction === 0 && Math.abs(total) >= 4) state.plan.direction = total > 0 ? 1 : -1;
+    const dir = state.plan.direction === 0 ? 1 : state.plan.direction;
+    if (dir * total > state.plan.maxProgress) state.plan.maxProgress = dir * total;
+    const idx = state.plan.next;
+    state.plan.taken.push(idx);
+    state.plan.next++;
+    takeShot(idx, norm360(dir * total));
+    if (state.plan.done) finish(true);
+  }
+
+  async function finish(complete) {
+    if (!state.running) return;
+    state.running = false;
+    state.armed = false;
+    cancelAnimationFrame(state.rafId);
+    clearInterval(state.countdownTimer);
+    clearTimeout(state.sensorTimer);
+    $("countdown").classList.remove("show");
+    setBanner("");
+    stopSensors();
+    releaseWakeLock();
+
+    // Let any in-flight JPEG encodes settle before showing results.
+    const deadline = Date.now() + 4000;
+    while (state.capturing > 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+    stopCamera();
+
+    if (complete) { audio.beep(1320, 160, 0.3); setTimeout(() => audio.beep(1760, 220, 0.3), 130); }
+    renderResults(complete);
+    showScreen("results");
+  }
+
+  function teardown() {
+    state.running = false;
+    state.armed = false;
+    cancelAnimationFrame(state.rafId);
+    clearInterval(state.countdownTimer);
+    clearTimeout(state.sensorTimer);
+    stopSensors();
+    stopCamera();
+    releaseWakeLock();
+    $("countdown").classList.remove("show");
+    setBanner("");
+  }
+
+  function renderResults(complete) {
+    const grid = $("grid");
+    grid.innerHTML = "";
+    const shots = state.shots;
+    const angles = shots.map((s) => s.angle);
+    const spread = state.plan ? Math.max(0, state.plan.maxProgress) : 0;
+
+    $("resTitle").textContent = complete ? "360° set complete" : "Set stopped early";
+    const size = state.frameSize ? " · " + state.frameSize.w + "×" + state.frameSize.h : "";
+    $("resSub").textContent = settings.mode === "guide"
+      ? "Guide mode — " + shots.length + " cue points paced, no images stored."
+      : shots.length + " frame" + (shots.length === 1 ? "" : "s") + " at " + Math.round(360 / settings.count) + "° steps" + size + ".";
+    $("statShots").textContent = String(shots.length);
+    $("statSpread").textContent = Math.round(Math.min(360, spread)) + "°";
+    $("statEven").textContent = maxGapError(angles, settings.count).toFixed(1) + "°";
+
+    for (const s of shots) {
+      const cell = document.createElement("div");
+      cell.className = "thumb";
+      if (s.url) {
+        const img = document.createElement("img");
+        img.src = s.url;
+        img.alt = "Frame " + (s.index + 1) + " at " + Math.round(s.angle) + " degrees";
+        cell.appendChild(img);
+      } else {
+        cell.style.display = "flex";
+        cell.style.alignItems = "center";
+        cell.style.justifyContent = "center";
+        cell.style.color = "#8d98a9";
+        cell.style.fontSize = "22px";
+        cell.textContent = "◉";
+      }
+      const tag = document.createElement("div");
+      tag.className = "tag";
+      tag.textContent = String(s.index + 1).padStart(2, "0") + " · " + Math.round(s.angle) + "°";
+      cell.appendChild(tag);
+      grid.appendChild(cell);
+    }
+
+    const hasImages = shots.some((s) => s.blob);
+    $("zipBtn").style.display = hasImages ? "" : "none";
+    $("saveHint").style.display = hasImages ? "" : "none";
+  }
+
+  async function downloadZip() {
+    const btn = $("zipBtn");
+    const shots = state.shots.filter((s) => s.blob);
+    if (!shots.length) return;
+    btn.disabled = true;
+    btn.textContent = "Packing " + shots.length + " frames…";
+    try {
+      const files = [];
+      for (const s of shots) {
+        const buf = new Uint8Array(await s.blob.arrayBuffer());
+        files.push({
+          name: "shot-" + String(s.index + 1).padStart(2, "0") + "-" + String(Math.round(s.angle)).padStart(3, "0") + "deg.jpg",
+          data: buf
+        });
+      }
+      const zip = makeZip(files);
+      const url = URL.createObjectURL(zip);
+      const a = $("dlAnchor");
+      const d = new Date();
+      const stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0") +
+        "-" + String(d.getHours()).padStart(2, "0") + String(d.getMinutes()).padStart(2, "0");
+      a.href = url;
+      a.download = "gyro360-" + stamp + ".zip";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      btn.textContent = "Saved to Files → Downloads";
+      setTimeout(() => { btn.textContent = "Download all as .zip"; btn.disabled = false; }, 2500);
+    } catch (e) {
+      btn.textContent = "Could not build the .zip — save frames individually";
+      btn.disabled = false;
+    }
+  }
+
+  function clearShots() {
+    for (const s of state.shots) if (s.url) URL.revokeObjectURL(s.url);
+    state.shots = [];
+  }
+
+  /* =====================================================================
+   *  9. Buttons
+   * ===================================================================== */
+
+  $("startBtn").addEventListener("click", start);
+  $("shutter").addEventListener("click", manualShot);
+  $("finishBtn").addEventListener("click", () => finish(state.plan ? state.plan.done : false));
+  $("abortBtn").addEventListener("click", () => { teardown(); clearShots(); showScreen("setup"); });
+  $("zipBtn").addEventListener("click", downloadZip);
+  $("againBtn").addEventListener("click", () => { clearShots(); start(); });
+  $("backBtn").addEventListener("click", () => { clearShots(); showScreen("setup"); });
+
+  // Block pinch-zoom / double-tap zoom that would fight the dial.
+  document.addEventListener("gesturestart", (e) => e.preventDefault());
+  document.addEventListener("dblclick", (e) => { if (ui.screen === "live") e.preventDefault(); });
+
+  window.addEventListener("pagehide", () => { if (state.running) teardown(); });
+
+  /* =====================================================================
+   *  10. Test surface (used by the automated E2E/unit suite)
+   * ===================================================================== */
+
+  window.__gyro = {
+    core: { angleDelta, norm360, orientationAxes, headingFromOrientation, RotationTracker, ShotPlan, nearestIndex, maxGapError, crc32, makeZip },
+    settings: settings,
+    state: state,
+    ui: ui,
+    isTest: isTest,
+    snapshot() {
+      return {
+        screen: ui.screen,
+        running: state.running,
+        armed: state.armed,
+        shots: state.shots.length,
+        withImages: state.shots.filter((s) => s.blob).length,
+        angles: state.shots.map((s) => Math.round(s.angle)),
+        total: state.plan ? state.tracker.total - state.startTotal : 0,
+        done: state.plan ? state.plan.done : false,
+        direction: state.plan ? state.plan.direction : 0,
+        speed: state.tracker.speed,
+        banner: $("banner").classList.contains("show") ? $("banner").textContent : ""
+      };
+    },
+    /** Feed a synthetic orientation sample (degrees). */
+    feed(alpha, beta, gamma) {
+      onOrientation({ alpha: alpha, beta: beta == null ? 90 : beta, gamma: gamma == null ? 0 : gamma });
+    },
+    /** Skip the lead-in countdown during tests. */
+    forceArm() { clearInterval(state.countdownTimer); $("countdown").classList.remove("show"); arm(); }
+  };
+})();
+</script>
+</body>
+</html>
