@@ -1,8 +1,9 @@
 # QA report — Gyro Spinner
 
-Automated suite: **28 tests, all passing**, plus a 3× repeat run (78 executions) to check for
-flakiness. Engine: Chromium 1194 via Playwright, iPhone-sized viewports, fake camera device,
-synthetic orientation samples fed through the app's real sensor entry point.
+Automated suite: **39 tests, all passing**, plus repeat runs to check for flakiness. Engine:
+Chromium 1194 via Playwright, iPhone-sized viewports, fake camera device, synthetic
+orientation samples fed through the app's real sensor entry point, and — for the self-spin
+drive — a simulated phone-on-a-surface driven by the app's own audio output.
 
 Run it:
 
@@ -16,6 +17,43 @@ npx playwright test          # starts the static server itself
 fake camera device. Set `CHROMIUM_PATH` to use a pre-installed browser binary.
 
 ## What is covered
+
+**Vibration drive (unit, 4 tests)**
+
+- `strokeWave`: peak-normalised, finite, no DC offset a speaker could not reproduce. The
+  physical claim is asserted directly — the two halves of the stroke carry **equal momentum**
+  (areas within 10% of each other) but peak forces in a 1 : 0.25 ratio, which is what breaks
+  static friction in one direction only. Flipping duty past 0.5 mirrors the stroke.
+- Loop buffer: exactly one stroke period long, carrier snapped to whole cycles per period so
+  the loop point cannot click, endpoints near zero.
+- `SpinController`: full-power breakaway kick from rest, proportional-integral cruise, zero
+  power when over target, cut to coast inside the stopping distance, coast → settle → drive
+  with a fresh kick, amplitude always within bounds.
+- Stall detection fires after sustained full power with no rotation, and never fires while
+  the phone is turning.
+
+**Vibration drive (end-to-end, 7 tests)**
+
+These feed the app's real drive output into a plant model — resonant response curve, kinetic
+friction, a static-friction threshold, and a much weaker response to the wrong stroke
+polarity — and feed the resulting rotation back through the sensor entry point. The whole
+loop is under test: waveform → amplitude → movement → gyro → shutter.
+
+- The speaker genuinely emits the waveform: audio context running, measured output RMS > 0.05
+  at the analyser while driving, carrier an exact multiple of the stroke rate, and true
+  silence (RMS < 0.01) after cancel.
+- Tuning finds the **plant's resonance** (within 45 Hz of a 220 Hz peak, from six candidates)
+  and the correct stroke polarity, with the losing polarity scoring at least 1.5× worse —
+  proving the sweep measures rather than guesses.
+- **Full self-spin run**: the simulated phone is walked past 300° by the drive alone, all 12
+  frames captured, and — the claim that matters — **not one frame taken while the drive was
+  pushing**; every capture is asserted to have happened at amplitude ≤ 0.08.
+- A surface it cannot slide on (static friction far above anything the speaker can produce):
+  every tuning candidate scores ~0, the phone does not move a degree, and the app reports the
+  surface instead of buzzing indefinitely.
+- Hand spin never starts the drive: no audio, no controller, amplitude stays 0.
+- Tuner overlay and the second HUD row fit at 375 and 393 px without overflow or overlapping
+  the dial.
 
 **Rotation maths (unit, 8 tests)**
 
@@ -69,6 +107,15 @@ fake camera device. Set `CHROMIUM_PATH` to use a pre-installed browser binary.
    the ring and readout.
 5. Cosmetic: a stat label wrapped to two lines; the results screen now also reports the saved
    frame size so the wider-than-preview crop is not a surprise.
+6. **The resonance tuner scored the wrong tone.** Candidates ran back to back, so a tone that
+   got the phone moving left it coasting into the next candidate's measurement window — the
+   sweep systematically credited whichever tone followed a good one. It picked 276 Hz on a
+   plant whose true resonance was 220 Hz. Each candidate now waits for the phone to come to
+   rest and scores only the speed it *added* over the baseline. Caught by the closed-loop
+   test, not by inspection.
+7. **The controller lost a tick re-arming.** Coming out of settle it set the state to drive
+   but left the amplitude at zero until the next tick, delaying the breakaway shove by 50 ms
+   in a loop whose entire job is precise timing.
 
 ## Limits of this harness — what a phone still has to confirm
 
@@ -87,3 +134,15 @@ phone:
   match the saved frame more closely than in the screenshots).
 - WebAudio beeps and the wake lock — both are guarded in try/catch and degrade silently.
 - `a[download]` for the zip: supported on iOS 13+, lands in Files → Downloads.
+
+**And the big one — the physics is simulated, not measured.** The plant model is a reasonable
+stick-slip approximation, and it proves the control logic, the tuner and the shutter gating
+are correct *given* a phone that responds to the drive at all. It cannot tell you how much
+force your iPhone's speaker actually produces on your table. That number decides whether the
+thing crawls round in ninety seconds or sits there buzzing, and only your phone on your
+surface can answer it. Expect to try a couple of surfaces; a bearing turntable is the
+reliable answer if a bare tabletop will not go.
+
+Specifically untestable here: the iOS 17.4+ switch-control Taptic tick (no WebKit engine
+available), and whether iOS throttles a sustained full-amplitude Web Audio loop in the
+background — the app holds a wake lock and only drives while the live screen is up.

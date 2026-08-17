@@ -1,10 +1,35 @@
 # Gyro Spinner — 360° capture for iPhone
 
-A single self-contained HTML page. Spin your iPhone (or the subject) and the gyroscope
-fires the shutter at perfectly even angles, so you end up with an evenly spaced 360° set
-instead of eyeballing it.
+A single self-contained HTML page. The phone **spins itself** by driving its own speaker
+and haptics, with the gyroscope closing the loop: drive, coast, stop, shoot, repeat, until
+it has walked a full 360° and captured an evenly spaced set.
 
 No build step, no dependencies, no install. One file: `index.html`.
+
+## Read this first — what the self-spin can and cannot do
+
+A phone has no motor and no wheels. The only way it can move itself is to throw its own mass
+around: the reaction force of the speaker cone, plus the haptic engine where the OS exposes
+it. That force is small — enough to slide a phone across glass, nowhere near enough to shift
+one on carpet.
+
+So the honest limits:
+
+- **It needs a low-friction surface.** Glass, a polished table, a laminate worktop — or,
+  best of all, a lazy-susan or a bearing turntable, where you are only fighting the bearing.
+  On carpet, rubber, a soft mat or a grippy case it will not move at all, and the app will
+  tell you so rather than buzzing away pointlessly.
+- **Volume at maximum, silent switch off, case off.** iOS mutes Web Audio when the ringer
+  switch is on, and the drive is the audio.
+- **It is loud.** The drive is an audible buzz at full volume for the length of the shoot.
+- **iOS Safari has no vibration API.** `navigator.vibrate` does nothing on iPhone. The
+  speaker does the real work; the app also fires the one haptic iOS 17.4+ exposes to the web
+  (the switch-control Taptic tick), which adds a little.
+- **Rotation is not fast.** Expect tens of degrees per second at best, so a 24-frame set
+  takes a minute or two. That is fine — it stops for every frame anyway.
+
+If the surface is wrong, switch **Spin drive** to **Hand spin** and turn it yourself; the
+shutter still fires at every angle.
 
 ## Open it on your iPhone
 
@@ -36,13 +61,26 @@ Tap **Allow sensors & start**. iOS shows two prompts:
 If you dismissed either one, the page tells you exactly where to re-enable it. Motion access
 lives in **Settings → Apps → Safari → Motion & Orientation Access**.
 
+On the first run in Self-spin the app spends about fifteen seconds **tuning**: it sweeps a
+range of carrier tones and both stroke polarities, watching the gyro to see which one
+actually moves this phone on this surface. Leave it alone while the bar chart fills. You can
+skip it, but tuned is dramatically better than untuned — the resonance shifts with every
+surface.
+
+## Spin drive
+
+| Drive | What happens |
+|---|---|
+| **Self-spin** | The speaker walks the phone round; the gyro controls it. Needs a slippery surface. |
+| **Hand spin** | You turn the phone or the turntable. No sound, no vibration. |
+
 ## Modes
 
 | Mode | What happens |
 |---|---|
-| **Auto** | The shutter fires by itself each time the phone has rotated one step. Just spin. |
+| **Auto** | The shutter fires by itself each time the phone has rotated one step. |
 | **Manual** | The dial counts down to the next angle; you tap the shutter. |
-| **Guide** | No camera. The dial and beeps pace your spin while a separate camera shoots. |
+| **Guide** | No camera. The dial and beeps pace the spin while a separate camera shoots. |
 
 Shots per 360°: **12** (30° steps), **24** (15°), **36** (10°), **72** (5°).
 24 is the usual choice for photogrammetry and turntable sets; 36–72 for stitched panoramas.
@@ -85,13 +123,40 @@ Shots per 360°: **12** (30° steps), **24** (15°), **36** (10°), **72** (5°)
 
 | Symptom | Fix |
 |---|---|
+| "Not moving" / "Nothing moved while tuning" | The surface is too grippy. Bare phone on glass, or a lazy-susan. Volume max, silent switch off. |
+| Drive is silent | iOS mutes Web Audio with the ringer switch on. Flip it off and restart the set. |
+| It spins but never stops squarely | Normal — it shoots wherever it settles and reports the spacing error. Fewer shots per turn helps. |
 | "No motion data" banner | Settings → Apps → Safari → Motion & Orientation Access → on, then reload. |
 | Motion prompt never appears | The prompt only comes from a real tap. Reload and tap the start button directly. |
 | Camera error | Another app holds the camera — close it. Or re-allow via **aA** → Website Settings → Camera. |
 | Angles drift over a long spin | Yaw comes from the gyro; drift is normal after several minutes. Tap **Cancel** and start a fresh set. |
 | Nothing fires in Auto | You need to actually rotate — the first frame fires at the origin, the rest at each step. |
 
-## How it works
+## How the self-spin works
+
+**The waveform.** A symmetric buzz gets you nothing: the phone rattles in place and stays
+put. Net motion needs an asymmetric force profile working against stick-slip friction — a
+short violent shove that breaks static friction and slides the phone, then a long gentle
+return that stays under the friction threshold and does not drag it back. The drive is an
+audible carrier tone amplitude-modulated by exactly that lopsided envelope, at roughly 12
+strokes a second. The two halves are built to carry **equal momentum but very unequal peak
+force**, which is the whole trick — and it is what the test suite measures.
+
+**The tuning.** A phone body, plus whatever it is standing on, has sharp mechanical
+resonances. A few tens of Hz either side of one is the difference between crawling and
+sitting still, and it moves with every surface, so the app measures rather than assumes:
+it sweeps six carrier tones × two stroke polarities, scoring each by the rotation the gyro
+actually reports, and keeps the winner. Each candidate is brought to a stop first, so a good
+tone cannot leave the phone coasting and hand its score to the next one.
+
+**The loop.** A controller ticks 20× a second: shove at full power to break static friction,
+settle into proportional-integral control at a ~22°/s cruise, then cut power early enough
+that friction coasts the phone into the next capture angle. The shutter is **gated on the
+drive being quiet** — a frame is never taken while the speaker is pushing, because that is
+exactly the moment it would smear. If it stops short of the marker, it nudges again. If full
+power produces no rotation for four seconds, it stops and tells you the surface is wrong.
+
+## How the angle tracking works
 
 - Orientation samples (`alpha`/`beta`/`gamma`) are turned into a full rotation matrix, and yaw
   is read as the compass azimuth of the axis the rear camera points along. That stays stable
@@ -107,7 +172,8 @@ Everything runs locally. No network calls, no analytics, no uploads.
 
 ## Tests
 
-Automated suite: 28 Playwright tests (unit + end-to-end) covering the rotation maths, shot
-planning, both spin directions, all three modes, permission-denied paths, camera lifecycle,
-zip integrity, and layout at three iPhone sizes. See `TESTING.md` for what was verified and
-the known limits of the harness.
+Automated suite: 39 Playwright tests (unit + end-to-end) covering the drive waveform, the
+resonance tuner, the closed-loop controller against a simulated phone-on-a-surface, the
+rotation maths, shot planning, both spin directions, all three modes, permission-denied
+paths, camera lifecycle, zip integrity, and layout at three iPhone sizes. See `TESTING.md`
+for what was verified and the known limits of the harness.

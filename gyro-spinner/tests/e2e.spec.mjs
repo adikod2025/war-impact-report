@@ -55,6 +55,11 @@ async function hold(page, { beta = 90, gamma = 0, samples = 20, intervalMs = 30 
 async function setMode(page, mode) {
   await page.click(`#modeSeg .opt[data-mode="${mode}"]`);
 }
+/** Self-spin is the default, so tests that are not about the drive pin hand-spin. */
+async function setDrive(page, drive) {
+  await page.click(`#driveSeg .opt[data-drive="${drive}"]`);
+  expect(await page.evaluate(() => window.__gyro.settings.drive)).toBe(drive);
+}
 async function setCount(page, count) {
   await page.click(`#countSeg .opt[data-count="${count}"]`);
 }
@@ -73,14 +78,18 @@ test.describe('setup screen', () => {
     await expect(page.locator('#setup')).toHaveClass(/active/);
     await expect(page.locator('#countSeg .opt[data-count="24"]')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#modeSeg .opt[data-mode="auto"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#driveSeg .opt[data-drive="self"]')).toHaveAttribute('aria-pressed', 'true');
 
     await setCount(page, 36);
     await setMode(page, 'manual');
     await expect(page.locator('#modeHint')).toContainText('you tap');
+    await setDrive(page, 'hand');
+    await expect(page.locator('#driveHint')).toContainText('You turn the phone');
     await page.click('#optSound');
     await page.click('#optLock');
+    await page.click('#optHaptics');
     expect(await page.evaluate(() => ({ ...window.__gyro.settings })))
-      .toEqual({ count: 36, mode: 'manual', sound: false, lead: true, lock: false, wake: true });
+      .toEqual({ count: 36, mode: 'manual', drive: 'hand', sound: false, lead: true, lock: false, wake: true, haptics: false });
 
     await setCount(page, 72);
     await setMode(page, 'guide');
@@ -95,6 +104,7 @@ test.describe('setup screen', () => {
     const errors = watchErrors(page);
     await stubIOSPermission(page, 'denied');
     await page.goto('/index.html');
+    await setDrive(page, 'hand');
     await page.click('#startBtn');
 
     await expect(page.locator('#setupError')).toBeVisible();
@@ -113,6 +123,7 @@ test.describe('setup screen', () => {
       navigator.mediaDevices.getUserMedia = () => Promise.reject(Object.assign(new Error('nope'), { name: 'NotAllowedError' }));
     });
     await page.goto('/index.html');
+    await setDrive(page, 'hand');
     await page.click('#startBtn');
     await expect(page.locator('#setupError')).toContainText('Camera access was denied');
     await expect(page.locator('#setup')).toHaveClass(/active/);
@@ -125,6 +136,7 @@ test.describe('auto capture', () => {
     const errors = watchErrors(page);
     await stubIOSPermission(page, 'granted');
     await page.goto('/index.html');
+    await setDrive(page, 'hand');
     await disableLeadIn(page);
     await page.click('#startBtn');
 
@@ -186,6 +198,7 @@ test.describe('auto capture', () => {
   test('a counter-clockwise spin works identically', async ({ page }) => {
     const errors = watchErrors(page);
     await page.goto('/index.html');
+    await setDrive(page, 'hand');
     await setCount(page, 12);
     await disableLeadIn(page);
     await page.click('#startBtn');
@@ -206,6 +219,7 @@ test.describe('auto capture', () => {
 
   test('the .zip download is a valid archive of every frame', async ({ page }, testInfo) => {
     await page.goto('/index.html');
+    await setDrive(page, 'hand');
     await setCount(page, 12);
     await disableLeadIn(page);
     await page.click('#startBtn');
@@ -228,6 +242,7 @@ test.describe('auto capture', () => {
 
   test('rotating too fast raises a warning without dropping frames', async ({ page }) => {
     await page.goto('/index.html');
+    await setDrive(page, 'hand');
     await setCount(page, 12);
     await disableLeadIn(page);
     await page.click('#startBtn');
@@ -248,6 +263,7 @@ test.describe('auto capture', () => {
 
   test('tilting the phone off vertical raises the level warning', async ({ page }) => {
     await page.goto('/index.html');
+    await setDrive(page, 'hand');
     await disableLeadIn(page);
     await page.click('#startBtn');
     await expect(page.locator('#live')).toHaveClass(/active/);
@@ -279,6 +295,7 @@ test.describe('dial rendering', () => {
   for (const [label, sign] of [['clockwise', 1], ['counter-clockwise', -1]]) {
     test(`the progress arc trails the pointer on a ${label} spin`, async ({ page }) => {
       await page.goto('/index.html');
+    await setDrive(page, 'hand');
       await setMode(page, 'guide');
       await disableLeadIn(page);
       await page.click('#startBtn');
@@ -300,6 +317,7 @@ test.describe('manual and guide modes', () => {
   test('manual mode captures one frame per shutter tap', async ({ page }) => {
     const errors = watchErrors(page);
     await page.goto('/index.html');
+    await setDrive(page, 'hand');
     await setCount(page, 12);
     await setMode(page, 'manual');
     await disableLeadIn(page);
@@ -329,6 +347,7 @@ test.describe('manual and guide modes', () => {
       navigator.mediaDevices.getUserMedia = (c) => { window.__gumCalls++; return real(c); };
     });
     await page.goto('/index.html');
+    await setDrive(page, 'hand');
     await setCount(page, 12);
     await setMode(page, 'guide');
     await disableLeadIn(page);
@@ -355,6 +374,7 @@ test.describe('manual and guide modes', () => {
 test.describe('session control', () => {
   test('the lead-in countdown runs before arming', async ({ page }) => {
     await page.goto('/index.html');
+    await setDrive(page, 'hand');
     await setMode(page, 'guide');
     await page.click('#startBtn');
     await expect(page.locator('#countdown')).toBeVisible();
@@ -367,6 +387,7 @@ test.describe('session control', () => {
 
   test('cancel stops the camera and returns to setup', async ({ page }) => {
     await page.goto('/index.html');
+    await setDrive(page, 'hand');
     await disableLeadIn(page);
     await page.click('#startBtn');
     await page.waitForFunction(() => window.__gyro.state.stream);
@@ -381,6 +402,7 @@ test.describe('session control', () => {
 
   test('finish early keeps the frames already taken', async ({ page }) => {
     await page.goto('/index.html');
+    await setDrive(page, 'hand');
     await disableLeadIn(page);
     await page.click('#startBtn');
     await page.waitForFunction(() => document.getElementById('video').videoWidth > 0);
@@ -396,6 +418,7 @@ test.describe('session control', () => {
 
   test('shooting a second set starts clean', async ({ page }) => {
     await page.goto('/index.html');
+    await setDrive(page, 'hand');
     await setCount(page, 12);
     await disableLeadIn(page);
     await page.click('#startBtn');
@@ -416,6 +439,7 @@ test.describe('session control', () => {
 
   test('warns when the device sends no motion data at all', async ({ page }) => {
     await page.goto('/index.html');
+    await setDrive(page, 'hand');
     await setMode(page, 'guide');
     await disableLeadIn(page);
     await page.click('#startBtn');
@@ -433,6 +457,7 @@ test.describe('layout', () => {
     test(`no horizontal overflow and readable HUD at ${s.name}`, async ({ page }) => {
       await page.setViewportSize({ width: s.width, height: s.height });
       await page.goto('/index.html');
+    await setDrive(page, 'hand');
       const setupOverflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       expect(setupOverflow).toBeLessThanOrEqual(0);
       await page.screenshot({ path: path.join(OUT, `setup-${s.name}.png`), fullPage: true });
@@ -462,6 +487,223 @@ test.describe('layout', () => {
       expect(dial.width).toBeLessThanOrEqual(s.width);
       expect(dial.height).toBeLessThanOrEqual(s.height);
       await page.screenshot({ path: path.join(OUT, `live-${s.name}.png`) });
+    });
+  }
+});
+
+/* ---------------------------------------------------------------------------
+ * Self-spin. The app's drive output is fed into a simulated phone-on-a-surface,
+ * whose rotation is fed back through the real sensor entry point — so the whole
+ * loop (waveform -> amplitude -> movement -> gyro -> shutter) is under test.
+ * ------------------------------------------------------------------------ */
+
+const PLANT = {
+  k: 90,            // deg/s^2 of drive at full amplitude, on resonance
+  peak: 220,        // the surface's resonant carrier, in Hz
+  width: 80,        // how sharp that resonance is
+  friction: 35,     // deg/s^2 of kinetic drag once it is moving
+  stick: 20,        // drive needed to break static friction
+  reverseGain: 0.3, // the wrong stroke polarity barely moves it
+};
+
+async function installPlant(page, cfg = PLANT) {
+  await page.addInitScript((c) => {
+    window.__plantCfg = c;
+    window.__plant = { theta: 0, w: 0, running: false, captures: [], loudCaptures: 0, maxAmp: 0 };
+    window.__startPlant = () => {
+      const p = window.__plant;
+      if (p.running) return;
+      p.running = true;
+      let prevShots = 0;
+      (async () => {
+        const dt = 0.02;
+        while (p.running) {
+          const d = window.__gyro.driveState();
+          if (d.amp > p.maxAmp) p.maxAmp = d.amp;
+          const resonance = Math.exp(-Math.pow((d.carrier - c.peak) / c.width, 2));
+          const polarity = d.duty < 0.5 ? 1 : c.reverseGain;
+          const push = c.k * d.amp * resonance * polarity;
+          let acc = push;
+          if (p.w > 0.5) acc -= c.friction;              // sliding
+          else if (push < c.stick) { acc = 0; p.w = 0; } // stuck
+          p.w = Math.max(0, p.w + acc * dt);
+          p.theta += p.w * dt;
+          window.__gyro.feed(((-p.theta % 360) + 360) % 360, 90, 0);
+          const shots = window.__gyro.state.shots.length;
+          if (shots > prevShots) {
+            p.captures.push({ amp: d.amp, w: p.w, theta: p.theta });
+            if (d.amp > 0.08) p.loudCaptures++;
+            prevShots = shots;
+          }
+          await new Promise((r) => setTimeout(r, 20));
+        }
+      })();
+    };
+    window.__stopPlant = () => { window.__plant.running = false; };
+  }, cfg);
+}
+
+test.describe('self-spin drive', () => {
+  test('the speaker actually emits the drive waveform, and stops on cancel', async ({ page }) => {
+    const errors = watchErrors(page);
+    await page.goto('/index.html');
+    await setMode(page, 'guide');
+    await disableLeadIn(page);
+    await page.click('#startBtn');
+
+    // Tuning starts immediately and runs the drive at full power.
+    await expect(page.locator('#tuner')).toBeVisible();
+    await expect(page.locator('#driveHud')).toBeVisible();
+    await page.waitForTimeout(400);
+    const live = await page.evaluate(() => window.__gyro.driveState());
+    expect(live.running).toBe(true);
+    expect(live.ctx).toBe('running');
+    expect(live.amp).toBeGreaterThan(0.5);
+    expect(live.rms, 'audio actually reaching the output').toBeGreaterThan(0.05);
+    expect(live.carrier % live.stroke).toBe(0);      // whole cycles: no loop click
+
+    await page.click('#tuneSkip');
+    await expect(page.locator('#tuner')).toBeHidden({ timeout: 20000 });
+
+    await page.click('#abortBtn');
+    await expect(page.locator('#setup')).toHaveClass(/active/);
+    await page.waitForTimeout(300);
+    const dead = await page.evaluate(() => window.__gyro.driveState());
+    expect(dead.running).toBe(false);
+    expect(dead.amp).toBe(0);
+    expect(dead.rms).toBeLessThan(0.01);            // silence, not a stuck tone
+    expect(errors).toEqual([]);
+  });
+
+  test('tuning finds the surface resonance and the working stroke polarity', async ({ page }) => {
+    test.setTimeout(120000);
+    await installPlant(page);
+    await page.goto('/index.html');
+    await setMode(page, 'guide');
+    await disableLeadIn(page);
+    await page.click('#startBtn');
+    await expect(page.locator('#tuner')).toBeVisible();
+    await page.evaluate(() => window.__startPlant());
+
+    await expect(page.locator('#tuner')).toBeHidden({ timeout: 60000 });
+    const st = await page.evaluate(() => window.__gyro.driveState());
+    expect(st.results.length).toBe(12);                       // 6 carriers x 2 polarities
+    // It must land on the plant's resonance, not just any tone that made noise.
+    expect(Math.abs(st.carrier - PLANT.peak), `tuned to ${st.carrier}Hz`).toBeLessThan(45);
+    expect(st.duty).toBeLessThan(0.5);                        // the polarity that moves it
+    // The losing polarity scored far worse — the sweep is measuring, not guessing.
+    const fwd = st.results.filter((r) => r.duty < 0.5).reduce((a, b) => (b.score > a.score ? b : a));
+    const rev = st.results.filter((r) => r.duty > 0.5).reduce((a, b) => (b.score > a.score ? b : a));
+    expect(fwd.score).toBeGreaterThan(rev.score * 1.5);
+    await page.evaluate(() => window.__stopPlant());
+  });
+
+  test('the phone spins itself through a full turn, shooting only while quiet', async ({ page }) => {
+    test.setTimeout(240000);
+    const errors = watchErrors(page);
+    await installPlant(page);
+    await page.goto('/index.html');
+    await setCount(page, 12);
+    await disableLeadIn(page);
+    await page.click('#startBtn');
+    await expect(page.locator('#tuner')).toBeVisible();
+    await page.evaluate(() => window.__startPlant());
+    await expect(page.locator('#tuner')).toBeHidden({ timeout: 60000 });
+
+    await expect(page.locator('#results')).toHaveClass(/active/, { timeout: 160000 });
+    await page.evaluate(() => window.__stopPlant());
+
+    const snap = await page.evaluate(() => window.__gyro.snapshot());
+    const plant = await page.evaluate(() => ({ ...window.__plant, captures: window.__plant.captures }));
+
+    expect(snap.shots).toBe(12);
+    expect(snap.withImages).toBe(12);
+    expect(snap.done).toBe(true);
+    // The phone was moved by the drive alone — nothing else touched it.
+    expect(plant.theta).toBeGreaterThan(300);
+    expect(plant.maxAmp).toBeGreaterThan(0.5);
+    // Not one frame was taken while the speaker was pushing.
+    expect(plant.loudCaptures, 'frames captured mid-buzz').toBe(0);
+    for (const c of plant.captures) expect(c.amp).toBeLessThanOrEqual(0.08);
+    await expect(page.locator('#grid .thumb')).toHaveCount(12);
+    expect(errors).toEqual([]);
+  });
+
+  test('a surface it cannot slide on is reported instead of spinning forever', async ({ page }) => {
+    test.setTimeout(120000);
+    // Static friction far above anything the speaker can produce: a rubber mat.
+    await installPlant(page, { ...PLANT, stick: 500, k: 10 });
+    await page.goto('/index.html');
+    await setCount(page, 12);
+    await setMode(page, 'guide');
+    await disableLeadIn(page);
+    await page.click('#startBtn');
+    await expect(page.locator('#tuner')).toBeVisible();
+    await page.evaluate(() => window.__startPlant());
+    await expect(page.locator('#tuner')).toBeHidden({ timeout: 60000 });
+
+    // Tuning measured nothing, and the controller gives up rather than buzzing on.
+    await expect(page.locator('#banner')).toContainText('surface', { timeout: 30000 });
+    const st = await page.evaluate(() => window.__gyro.driveState());
+    expect(st.results.every((r) => r.score < 0.5)).toBe(true);
+    const plant = await page.evaluate(() => window.__plant);
+    expect(plant.theta).toBeLessThan(1);
+    await page.evaluate(() => window.__stopPlant());
+  });
+
+  test('hand spin never starts the drive', async ({ page }) => {
+    await page.goto('/index.html');
+    await setDrive(page, 'hand');
+    await setMode(page, 'guide');
+    await disableLeadIn(page);
+    await page.click('#startBtn');
+    await expect(page.locator('#live')).toHaveClass(/active/);
+    await expect(page.locator('#tuner')).toBeHidden();
+    await expect(page.locator('#driveHud')).toBeHidden();
+    const st = await page.evaluate(() => window.__gyro.driveState());
+    expect(st.running).toBe(false);
+    expect(st.amp).toBe(0);
+    expect(st.controller).toBeNull();
+    await spin(page, { degrees: 90, stepDeg: 3, intervalMs: 15 });
+    expect((await page.evaluate(() => window.__gyro.driveState())).amp).toBe(0);
+  });
+});
+
+test.describe('self-spin layout', () => {
+  for (const s of [{ name: 'iphone-se', width: 375, height: 667 }, { name: 'iphone-15-pro', width: 393, height: 852 }]) {
+    test(`tuner and drive HUD fit at ${s.name}`, async ({ page }) => {
+      await page.setViewportSize({ width: s.width, height: s.height });
+      await installPlant(page);
+      await page.goto('/index.html');
+      await disableLeadIn(page);
+      await page.click('#startBtn');
+      await expect(page.locator('#tuner')).toBeVisible();
+      await page.evaluate(() => window.__startPlant());
+      await page.waitForTimeout(2500);
+      await page.screenshot({ path: path.join(OUT, `tuner-${s.name}.png`) });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+
+      await page.click('#tuneSkip');
+      await expect(page.locator('#tuner')).toBeHidden({ timeout: 20000 });
+      await expect(page.locator('#driveHud')).toBeVisible();
+      await page.waitForTimeout(1200);
+      await page.screenshot({ path: path.join(OUT, `drive-live-${s.name}.png`) });
+
+      // Both HUD rows stay inside the viewport and do not collide with the dial.
+      const boxes = await page.evaluate(() =>
+        [...document.querySelectorAll('.hud.top .chip, .hud.top2 .chip')].map((el) => {
+          const r = el.getBoundingClientRect();
+          return { left: r.left, right: r.right, bottom: r.bottom };
+        }));
+      expect(boxes.length).toBe(7);
+      for (const b of boxes) {
+        expect(b.left).toBeGreaterThanOrEqual(-0.5);
+        expect(b.right).toBeLessThanOrEqual(s.width + 0.5);
+      }
+      const dial = await page.locator('#dial').boundingBox();
+      const lowestChip = Math.max(...boxes.map((b) => b.bottom));
+      expect(lowestChip, 'HUD must not overlap the dial').toBeLessThan(dial.y + 8);
+      await page.evaluate(() => window.__stopPlant());
     });
   }
 });

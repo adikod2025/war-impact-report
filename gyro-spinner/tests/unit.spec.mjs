@@ -207,3 +207,124 @@ test('crc32 matches the reference vector and makeZip writes a valid archive head
   expect(r.type).toBe('application/zip');
   expect(r.size).toBe(30 + 5 + 5 + 46 + 5 + 22);
 });
+
+/* ---------------------------------------------------------------------------
+ * Vibration drive: waveform synthesis and the closed-loop controller.
+ * ------------------------------------------------------------------------ */
+
+test('strokeWave builds an impulse-balanced but peak-asymmetric stroke', async ({ page }) => {
+  const r = await page.evaluate(() => {
+    const { strokeWave } = window.__gyro.core;
+    const measure = (duty) => {
+      const n = 3675;                       // 44.1kHz / 12Hz stroke
+      const x = strokeWave(n, 18, duty);
+      const cut = Math.round(n * duty);
+      let peak = 0, pushPeak = 0, holdPeak = 0, pushArea = 0, holdArea = 0, sum = 0, nan = 0;
+      for (let i = 0; i < n; i++) {
+        const v = x[i], a = Math.abs(v);
+        if (!isFinite(v)) nan++;
+        sum += v;
+        if (a > peak) peak = a;
+        if (i < cut) { pushArea += a; if (a > pushPeak) pushPeak = a; }
+        else { holdArea += a; if (a > holdPeak) holdPeak = a; }
+      }
+      return { n: x.length, peak, pushPeak, holdPeak, pushArea, holdArea, mean: sum / n, nan };
+    };
+    return { short: measure(0.2), long: measure(0.8) };
+  });
+
+  // Peak-normalised, finite, no DC a speaker could not reproduce.
+  expect(r.short.n).toBe(3675);
+  expect(r.short.nan).toBe(0);
+  expect(r.short.peak).toBeCloseTo(1, 3);
+  expect(Math.abs(r.short.mean)).toBeLessThan(0.01);
+
+  // The physical claim: both halves carry the SAME momentum (equal area) but
+  // very different peak force — that is what breaks static friction one way only.
+  expect(r.short.pushArea / r.short.holdArea).toBeGreaterThan(0.9);
+  expect(r.short.pushArea / r.short.holdArea).toBeLessThan(1.1);
+  expect(r.short.pushPeak).toBeCloseTo(1, 3);
+  expect(r.short.holdPeak).toBeCloseTo(0.25, 1);   // d/(1-d) for d = 0.2
+
+  // Duty above 0.5 mirrors the stroke: the shove lands in the other half.
+  expect(r.long.holdPeak).toBeCloseTo(1, 3);
+  expect(r.long.pushPeak).toBeCloseTo(0.25, 1);
+});
+
+test('VibeDrive builds a seamless loop buffer at the requested stroke rate', async ({ page }) => {
+  const r = await page.evaluate(async () => {
+    const { VibeDrive } = window.__gyro.core;
+    const d = new VibeDrive();
+    d.ctx = new OfflineAudioContext(1, 44100, 44100);   // deterministic, no device
+    d.params = { carrier: 210, stroke: 12, duty: 0.2 };
+    const buf = d.buildBuffer();
+    const data = buf.getChannelData(0);
+    let peak = 0;
+    for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs(data[i]));
+    return { len: buf.length, sr: buf.sampleRate, carrier: d.effectiveCarrier, peak, first: data[0], last: data[data.length - 1] };
+  });
+  expect(r.len).toBe(3675);                    // exactly one 12 Hz period
+  expect(r.carrier).toBe(216);                 // snapped to a whole 18 cycles/period
+  expect(r.carrier % 12).toBe(0);              // whole cycles => no click at the loop point
+  expect(r.peak).toBeCloseTo(1, 3);
+  expect(Math.abs(r.first)).toBeLessThan(0.05);
+  expect(Math.abs(r.last)).toBeLessThan(0.05);
+});
+
+test('SpinController kicks, cruises, brakes and settles', async ({ page }) => {
+  const r = await page.evaluate(() => {
+    const { SpinController } = window.__gyro.core;
+    const c = new SpinController({ target: 22, maxAmp: 1 });
+    let now = 0;
+    c.reset(now);
+    const step = (speed, toNext, ms) => { now += ms; return c.update(ms / 1000, speed, toNext, now); };
+
+    const kick = step(0, 90, 50);                       // breakaway shove from rest
+    let cruise;
+    for (let i = 0; i < 30; i++) cruise = step(22, 90, 50);   // at target speed
+    let fast;
+    for (let i = 0; i < 20; i++) fast = step(70, 90, 50);     // way over target
+    const brake = step(22, 5, 50);                      // close to the marker
+    let coasting;
+    for (let i = 0; i < 5; i++) coasting = step(12, 2, 50);   // still rolling
+    const settling = step(1, 1.5, 50);                  // rolled to a stop
+    let held;
+    for (let i = 0; i < 4; i++) held = step(0.5, 1.5, 50);
+    const rearmed = step(0.5, 1.5, 200);
+    return { kick, cruise, fast, brake, coasting, settling, held, rearmed };
+  });
+  expect(r.kick.amp).toBe(1);                   // full power to break static friction
+  expect(r.kick.state).toBe('drive');
+  expect(r.cruise.amp).toBeGreaterThan(0);      // holding speed needs some power
+  expect(r.cruise.amp).toBeLessThan(1);
+  expect(r.fast.amp).toBe(0);                   // over target: stop pushing
+  expect(r.brake.state).toBe('coast');          // inside the stopping distance
+  expect(r.brake.amp).toBe(0);
+  expect(r.coasting.state).toBe('coast');       // no power while it rolls in
+  expect(r.coasting.amp).toBe(0);
+  expect(r.settling.state).toBe('settle');      // speed under the settle threshold
+  expect(r.settling.amp).toBe(0);
+  expect(r.held.state).toBe('settle');          // stays quiet while the frame is taken
+  expect(r.rearmed.state).toBe('drive');        // then drives on to the next marker
+  expect(r.rearmed.amp).toBe(1);                // with a fresh breakaway kick
+});
+
+test('SpinController reports a stall when full power moves nothing', async ({ page }) => {
+  const r = await page.evaluate(() => {
+    const { SpinController } = window.__gyro.core;
+    const c = new SpinController({ target: 22, maxAmp: 1, stallMs: 1000 });
+    let now = 0, out = null;
+    c.reset(now);
+    const seen = [];
+    for (let i = 0; i < 60; i++) { now += 50; out = c.update(0.05, 0, 90, now); seen.push(out.amp); }
+    const moving = new SpinController({ target: 22, maxAmp: 1, stallMs: 1000 });
+    moving.reset(0);
+    let now2 = 0, out2 = null;
+    for (let i = 0; i < 60; i++) { now2 += 50; out2 = moving.update(0.05, 18, 90, now2); }
+    return { stalled: out.stalled, maxAmp: Math.max(...seen), minAmp: Math.min(...seen), movingStalled: out2.stalled };
+  });
+  expect(r.stalled).toBe(true);          // 3 s at full power, zero rotation
+  expect(r.maxAmp).toBeLessThanOrEqual(1);
+  expect(r.minAmp).toBeGreaterThanOrEqual(0);
+  expect(r.movingStalled).toBe(false);   // a phone that is turning is never stalled
+});

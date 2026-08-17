@@ -110,6 +110,26 @@
   .chip.alert { border-color: var(--warn); color: var(--warn); }
   .chip.alert span { color: var(--warn); opacity: .8; }
 
+  .hud.top2 { top: calc(var(--safe-t) + 62px); display: none; gap: 8px; padding: 0 12px; }
+  .hud.top2.show { display: flex; }
+
+  #tuner {
+    position: absolute; inset: 0; display: none; flex-direction: column;
+    align-items: center; justify-content: center; gap: 10px; padding: 24px;
+    background: rgba(7,9,13,.92); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    text-align: center;
+  }
+  #tuner.show { display: flex; }
+  #tuner h2 { font-size: 19px; margin: 0; font-weight: 650; }
+  #tuner p { font-size: 13.5px; color: var(--muted); margin: 0 0 6px; max-width: 300px; line-height: 1.45; }
+  #tuneBars { display: flex; align-items: flex-end; gap: 5px; height: 132px; margin-bottom: 10px; }
+  .tbar { width: 15px; background: var(--panel-2); border-radius: 4px 4px 0 0; position: relative; height: 4px; transition: height .2s ease, background .2s ease; }
+  .tbar.best { background: var(--accent); }
+  .tbar.cur { background: var(--warn); }
+  .tbar i { position: absolute; bottom: -17px; left: 50%; transform: translateX(-50%); font-size: 8.5px; font-style: normal; color: var(--muted); }
+  .tbar.split { margin-left: 16px; }
+  #tuneLegend { font-size: 11px; color: var(--muted); margin: 14px 0 2px; }
+
   #banner {
     position: absolute; left: 12px; right: 12px; top: calc(var(--safe-t) + 74px);
     background: rgba(255,176,32,.92); color: #221600; border-radius: 12px; padding: 9px 12px;
@@ -183,6 +203,19 @@
     </div>
 
     <div class="card">
+      <div class="label">Spin drive</div>
+      <div class="seg cols-2" id="driveSeg">
+        <button class="opt" data-drive="self" aria-pressed="true">Self-spin<small>speaker + haptics</small></button>
+        <button class="opt" data-drive="hand" aria-pressed="false">Hand spin<small>you turn it</small></button>
+      </div>
+      <p class="hint" id="driveHint">The phone throws its own mass around: an asymmetric buzz through the speaker
+        walks it round, and the gyro closes the loop — drive, coast, stop, shoot, repeat.
+        <b>It needs to be able to slide:</b> hard smooth surface (glass, laminate, a lazy-susan or bearing turntable),
+        case off, <b>volume at maximum</b> and the silent switch <b>off</b>. On carpet, rubber or a soft mat it will not budge —
+        use Hand spin there.</p>
+    </div>
+
+    <div class="card">
       <div class="label">Mode</div>
       <div class="seg cols-3" id="modeSeg">
         <button class="opt" data-mode="auto" aria-pressed="true">Auto<small>gyro fires</small></button>
@@ -210,7 +243,12 @@
         <div><div class="t">Keep screen awake</div><div class="d">Prevents the phone sleeping mid-spin</div></div>
         <button class="switch" id="optWake" aria-pressed="true" aria-label="Keep screen awake"></button>
       </div>
+      <div class="row">
+        <div><div class="t">Haptic pulses</div><div class="d">Adds Taptic ticks to the drive (iOS 17.4+, best-effort)</div></div>
+        <button class="switch" id="optHaptics" aria-pressed="true" aria-label="Haptic pulses"></button>
+      </div>
     </div>
+    <input type="checkbox" switch id="hapticSwitch" class="sr" aria-hidden="true" tabindex="-1">
 
     <button class="btn" id="startBtn">Allow sensors &amp; start</button>
     <p class="hint" style="text-align:center">iOS asks for Motion &amp; Camera access on the next tap. Hold the phone upright, spin smoothly, and keep the subject centred.</p>
@@ -229,9 +267,22 @@
       <div class="chip grow" id="hudSpeedChip"><span>Speed</span><b id="hudSpeed">0°/s</b></div>
       <div class="chip" id="hudLevelChip"><span>Level</span><b id="hudLevel">OK</b></div>
     </div>
+    <div class="hud top2" id="driveHud">
+      <div class="chip"><span>Drive</span><b id="hudDriveState">—</b></div>
+      <div class="chip"><span>Tone</span><b id="hudDriveTone">—</b></div>
+      <div class="chip grow"><span>Power</span><b id="hudDrivePower">0%</b></div>
+    </div>
 
     <div id="banner"></div>
     <div id="countdown"></div>
+
+    <div id="tuner">
+      <h2>Tuning the drive</h2>
+      <p>Finding the tone this phone and this surface respond to. Leave it where it is standing.</p>
+      <div id="tuneBars"></div>
+      <div id="tuneLegend">carrier tone, Hz — swept for each of the two stroke polarities</div>
+      <button class="mini" id="tuneSkip">Skip tuning</button>
+    </div>
 
     <div class="hud bottom">
       <button class="mini danger" id="abortBtn">Cancel</button>
@@ -405,6 +456,223 @@
     }
   }
 
+  /* ---------------------------------------------------------------------
+   *  Vibration drive — the phone spins itself.
+   *
+   *  A phone has no wheels, so the only way to move it is to throw its own
+   *  mass around: the speaker cone's reaction force and (where the OS allows
+   *  it) the haptic engine. A symmetric buzz gets you nothing — the phone
+   *  rattles in place. Net motion needs an ASYMMETRIC force profile working
+   *  against stick-slip friction: a short violent shove that breaks static
+   *  friction and slides the phone, then a long gentle return under the
+   *  friction threshold that does not slide it back.
+   *
+   *  That is what strokeWave builds: an audible carrier (the only thing a
+   *  phone speaker can actually reproduce) amplitude-modulated by a lopsided
+   *  envelope at walking speed.
+   * ------------------------------------------------------------------- */
+
+  /**
+   * One stroke period, peak-normalised to ±1.
+   * @param length    samples in the period (= sampleRate / strokeRate)
+   * @param cycles    whole carrier cycles per period, so the loop is seamless
+   * @param duty      fraction of the period spent on the strong half.
+   *                  < 0.5 shoves early; > 0.5 shoves late. Flipping it across
+   *                  0.5 reverses which half breaks friction, which is the
+   *                  only direction control a speaker gives you.
+   */
+  function strokeWave(length, cycles, duty) {
+    const out = new Float32Array(length);
+    const d = Math.min(0.9, Math.max(0.1, duty));
+    let peak = 0;
+    for (let i = 0; i < length; i++) {
+      const t = i / length;
+      // Impulse-balanced envelope: both halves carry equal area (no DC, which
+      // a speaker cannot reproduce anyway) but wildly different peak force.
+      const env = t < d
+        ? Math.sin(Math.PI * t / d)
+        : -(d / (1 - d)) * Math.sin(Math.PI * (t - d) / (1 - d));
+      out[i] = env * Math.sin(2 * Math.PI * cycles * i / length);
+      const a = Math.abs(out[i]);
+      if (a > peak) peak = a;
+    }
+    if (peak > 0) for (let i = 0; i < length; i++) out[i] /= peak;
+    return out;
+  }
+
+  /** Mean and peak of a signal — used by the tests and the tuning readout. */
+  function waveStats(x) {
+    let sum = 0, peak = 0, pushPeak = 0, holdPeak = 0;
+    const half = Math.floor(x.length / 2);
+    for (let i = 0; i < x.length; i++) {
+      sum += x[i];
+      const a = Math.abs(x[i]);
+      if (a > peak) peak = a;
+      if (i < half) { if (a > pushPeak) pushPeak = a; }
+      else if (a > holdPeak) holdPeak = a;
+    }
+    return { mean: sum / x.length, peak: peak, pushPeak: pushPeak, holdPeak: holdPeak };
+  }
+
+  /**
+   * Drives the speaker (and, where the platform allows, the haptics).
+   * Amplitude is the control input; the controller below sets it.
+   */
+  class VibeDrive {
+    constructor() {
+      this.ctx = null; this.gain = null; this.src = null; this.analyser = null;
+      this.params = { carrier: 210, stroke: 12, duty: 0.2 };
+      this.amp = 0;
+      this.running = false;
+      this.effectiveCarrier = 210;
+      this.available = false;
+      this.haptics = false;
+    }
+    /** @param {AudioContext} [shared] reuse the page's context — iOS caps them. */
+    async ensure(shared) {
+      if (!this.ctx) {
+        const C = window.AudioContext || window.webkitAudioContext;
+        if (!shared && !C) throw new Error("This browser has no Web Audio support, so the vibration drive cannot run.");
+        this.ctx = shared || new C();
+        this.gain = this.ctx.createGain();
+        this.gain.gain.value = 0;
+        this.analyser = this.ctx.createAnalyser();
+        this.analyser.fftSize = 2048;
+        this.gain.connect(this.analyser);
+        this.analyser.connect(this.ctx.destination);
+      }
+      if (this.ctx.state === "suspended") {
+        // Never let a wedged audio context block the whole session.
+        await Promise.race([this.ctx.resume(), new Promise((r) => setTimeout(r, 1200))]);
+      }
+      this.available = true;
+      return this.ctx;
+    }
+    buildBuffer() {
+      const sr = this.ctx.sampleRate;
+      const len = Math.max(64, Math.round(sr / this.params.stroke));
+      const cycles = Math.max(1, Math.round(this.params.carrier / this.params.stroke));
+      this.effectiveCarrier = cycles * this.params.stroke;
+      const data = strokeWave(len, cycles, this.params.duty);
+      const buf = this.ctx.createBuffer(1, len, sr);
+      if (buf.copyToChannel) buf.copyToChannel(data, 0);
+      else buf.getChannelData(0).set(data);
+      return buf;
+    }
+    restart() {
+      if (!this.ctx) return;
+      if (this.src) { try { this.src.stop(); } catch (e) {} try { this.src.disconnect(); } catch (e) {} }
+      const src = this.ctx.createBufferSource();
+      src.buffer = this.buildBuffer();
+      src.loop = true;
+      src.connect(this.gain);
+      src.start();
+      this.src = src;
+    }
+    async start(shared) {
+      await this.ensure(shared);
+      this.restart();
+      this.running = true;
+    }
+    setParams(p) {
+      Object.assign(this.params, p);
+      if (this.running) this.restart();
+    }
+    setAmp(a) {
+      const v = Math.max(0, Math.min(1, a || 0));
+      this.amp = v;
+      if (this.gain && this.ctx) this.gain.gain.setTargetAtTime(v, this.ctx.currentTime, 0.015);
+    }
+    stop() {
+      this.setAmp(0);
+      this.running = false;
+      if (this.src) {
+        try { this.src.stop(this.ctx.currentTime + 0.05); } catch (e) {}
+        this.src = null;
+      }
+    }
+    /** Output level actually reaching the speaker — proof the drive is live. */
+    rms() {
+      if (!this.analyser) return 0;
+      const buf = new Float32Array(this.analyser.fftSize);
+      if (!this.analyser.getFloatTimeDomainData) return 0;
+      this.analyser.getFloatTimeDomainData(buf);
+      let s = 0;
+      for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
+      return Math.sqrt(s / buf.length);
+    }
+  }
+
+  /**
+   * Closed loop over the gyro: drive up to a cruise rate, cut the drive early
+   * enough to coast into the next capture angle, wait for the phone to stop
+   * ringing, shoot, repeat. Shooting while the speaker is pushing would smear
+   * every frame, so captures are gated on the drive being quiet.
+   */
+  class SpinController {
+    constructor(opts) {
+      opts = opts || {};
+      this.target = opts.target || 22;        // deg/s cruise
+      this.maxAmp = opts.maxAmp == null ? 1 : opts.maxAmp;
+      this.settleSpeed = opts.settleSpeed || 2.5;
+      this.settleMs = opts.settleMs || 300;
+      this.stallMs = opts.stallMs || 4000;
+      this.reset(0);
+    }
+    reset(now) {
+      this.state = "drive";
+      this.amp = 0;
+      this.integral = 0;
+      this.since = now || 0;
+      this.kickUntil = (now || 0) + 400;      // breakaway shove
+      this.movingSince = now || 0;
+      this.stalled = false;
+    }
+    /**
+     * @param dt     seconds since the last tick
+     * @param speed  measured |yaw rate|, deg/s
+     * @param toNext degrees still to travel to the next capture angle
+     * @param now    ms clock
+     */
+    update(dt, speed, toNext, now) {
+      // Stop distance: cut power this far out and let friction do the braking.
+      const brake = Math.max(2.5, speed * 0.4);
+
+      if (speed > this.settleSpeed) this.movingSince = now;
+
+      switch (this.state) {
+        case "drive": {
+          if (toNext <= brake) { this.state = "coast"; this.since = now; this.amp = 0; break; }
+          if (now < this.kickUntil) { this.amp = this.maxAmp; break; }
+          const err = this.target - speed;
+          this.integral = Math.max(-30, Math.min(30, this.integral + err * dt));
+          this.amp = Math.max(0, Math.min(this.maxAmp, 0.25 + 0.018 * err + 0.010 * this.integral));
+          // Full power with no movement for several seconds means the phone
+          // cannot slide where it is sitting.
+          if (this.amp > this.maxAmp * 0.9 && now - this.movingSince > this.stallMs) this.stalled = true;
+          break;
+        }
+        case "coast":
+          this.amp = 0;
+          this.integral = 0;
+          if (speed <= this.settleSpeed) { this.state = "settle"; this.since = now; }
+          break;
+        case "settle":
+          this.amp = 0;
+          if (speed > this.settleSpeed) { this.state = "coast"; this.since = now; break; }
+          if (now - this.since >= this.settleMs) {
+            this.state = "drive";
+            this.since = now;
+            this.kickUntil = now + 400;
+            this.movingSince = now;
+            this.amp = this.maxAmp;      // shove on this tick, not the next one
+          }
+          break;
+      }
+      return { amp: this.amp, state: this.state, stalled: this.stalled };
+    }
+  }
+
   /** Evenness metric: worst deviation from the ideal even spacing, in degrees. */
   function maxGapError(angles, count) {
     if (angles.length < 2) return 0;
@@ -547,11 +815,37 @@
 
   function buzz(ms) { try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {} }
 
+  /**
+   * The only haptic iOS Safari exposes: since 17.4 the switch-style checkbox
+   * plays a Taptic tick when toggled. Android gets the real vibration API.
+   * Both are best-effort — the speaker does the actual work.
+   */
+  const haptic = {
+    last: 0,
+    tick(now) {
+      if (!settings.haptics) return false;
+      if (now - this.last < 90) return false;
+      this.last = now;
+      let fired = false;
+      try {
+        if (navigator.vibrate) { navigator.vibrate(12); fired = true; }
+      } catch (e) {}
+      try {
+        const el = $("hapticSwitch");
+        if (el) { el.click(); fired = true; }   // click() toggles it and plays the tick
+      } catch (e) {}
+      return fired;
+    }
+  };
+
   /* =====================================================================
    *  3. State
    * ===================================================================== */
 
-  const settings = { count: 24, mode: "auto", sound: true, lead: true, lock: true, wake: true };
+  const settings = {
+    count: 24, mode: "auto", drive: "self",
+    sound: true, lead: true, lock: true, wake: true, haptics: true
+  };
 
   const ui = { screen: "setup" };
 
@@ -572,12 +866,29 @@
     rafId: 0,
     countdownTimer: 0,
     sensorTimer: 0,
-    capturing: 0
+    capturing: 0,
+    controller: null,
+    driveTimer: 0,
+    driveTick: 0,
+    tuning: false,
+    tuneResults: null,
+    driveError: ""
   };
+
+  const drive = new VibeDrive();
 
   const SPEED_LIMIT = 80;  // deg/s — beyond this frames smear
   const LEVEL_ROLL = 8;    // deg
   const LEVEL_PITCH = 14;  // deg
+  const DRIVE_QUIET = 0.08; // drive amplitude below which a frame is safe to take
+  const DRIVE_TICK = 50;   // ms between control updates
+
+  // Carrier sweep for tuning. A phone body plus whatever it is standing on has
+  // sharp mechanical resonances; a few tens of Hz either side of one is the
+  // difference between crawling and sitting still, and it changes with every
+  // surface, so it has to be measured rather than assumed.
+  const TUNE_CARRIERS = [90, 130, 175, 220, 280, 350];
+  const TUNE_DUTIES = [0.2, 0.8];
 
   /* =====================================================================
    *  4. Setup screen wiring
@@ -606,12 +917,19 @@
     guide: "Guide: no camera is used. The dial and beeps pace your spin while a separate camera or app shoots."
   };
 
+  const DRIVE_HINTS = {
+    self: "The phone throws its own mass around: an asymmetric buzz through the speaker walks it round, and the gyro closes the loop — drive, coast, stop, shoot, repeat. <b>It needs to be able to slide:</b> hard smooth surface (glass, laminate, a lazy-susan or bearing turntable), case off, <b>volume at maximum</b> and the silent switch <b>off</b>. On carpet, rubber or a soft mat it will not budge — use Hand spin there.",
+    hand: "You turn the phone (or the turntable) yourself. The gyro still fires the shutter at every step — no sound, no vibration."
+  };
+
   bindSegment($("countSeg"), "count", (v) => { settings.count = parseInt(v, 10); });
+  bindSegment($("driveSeg"), "drive", (v) => { settings.drive = v; $("driveHint").innerHTML = DRIVE_HINTS[v]; });
   bindSegment($("modeSeg"), "mode", (v) => { settings.mode = v; $("modeHint").textContent = MODE_HINTS[v]; });
   bindSwitch($("optSound"), "sound");
   bindSwitch($("optLead"), "lead");
   bindSwitch($("optLock"), "lock");
   bindSwitch($("optWake"), "wake");
+  bindSwitch($("optHaptics"), "haptics");
 
   function setupError(html) {
     const el = $("setupError");
@@ -790,6 +1108,97 @@
     }).catch(() => { state.capturing--; return record; });
   }
 
+  /* =====================================================================
+   *  6b. Drive: tuning and the control loop
+   * ===================================================================== */
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  /**
+   * Sweeps carrier frequency and stroke polarity, scoring each by how much the
+   * gyro actually moves. Whatever wins is what this phone, on this surface,
+   * responds to — there is no useful default.
+   */
+  /** Cut power and wait for the phone to actually stop, up to a limit. */
+  async function settleQuiet(maxMs) {
+    drive.setAmp(0);
+    const until = performance.now() + maxMs;
+    while (performance.now() < until) {
+      if (state.tracker.speed < 2) return;
+      await sleep(50);
+    }
+  }
+
+  async function autoTune(onProgress) {
+    state.tuning = true;
+    const results = [];
+    try {
+      for (let di = 0; di < TUNE_DUTIES.length; di++) {
+        for (let ci = 0; ci < TUNE_CARRIERS.length; ci++) {
+          if (!state.tuning || !state.running) return finishTune(results);
+          const carrier = TUNE_CARRIERS[ci], duty = TUNE_DUTIES[di];
+          drive.setParams({ carrier: carrier, duty: duty });
+          // Each candidate has to start from rest, or a good tone leaves the
+          // phone coasting and the next one takes the credit for it.
+          await settleQuiet(900);
+          const base = state.tracker.speed;
+          drive.setAmp(1);
+          await sleep(220);                       // let it get going
+          let sum = 0, n = 0;
+          const until = performance.now() + 420;
+          while (performance.now() < until) {
+            sum += state.tracker.speed;
+            n++;
+            await sleep(30);
+          }
+          drive.setAmp(0);
+          // Score the speed this tone *added*, not the speed it inherited.
+          results.push({ carrier: carrier, duty: duty, score: Math.max(0, (n ? sum / n : 0) - base) });
+          if (onProgress) onProgress(results);
+        }
+      }
+    } catch (e) { /* tuning is an optimisation, never a hard failure */ }
+    return finishTune(results);
+  }
+
+  function finishTune(results) {
+    state.tuning = false;
+    drive.setAmp(0);
+    state.tuneResults = results;
+    if (!results.length) return null;
+    const best = results.reduce((a, b) => (b.score > a.score ? b : a));
+    if (best.score > 0.4) drive.setParams({ carrier: best.carrier, duty: best.duty });
+    return best;
+  }
+
+  function startControlLoop() {
+    stopControlLoop();
+    state.controller = new SpinController({ target: 22, maxAmp: 1 });
+    state.controller.reset(performance.now());
+    state.driveTick = performance.now();
+    state.driveTimer = setInterval(controlTick, DRIVE_TICK);
+  }
+
+  function stopControlLoop() {
+    clearInterval(state.driveTimer);
+    state.driveTimer = 0;
+    state.controller = null;
+  }
+
+  function controlTick() {
+    if (!state.running || !state.armed || !state.plan || state.tuning) return;
+    const now = performance.now();
+    const dt = Math.min(0.5, (now - state.driveTick) / 1000);
+    state.driveTick = now;
+    if (state.plan.done) { drive.setAmp(0); return; }
+
+    const total = state.tracker.total - state.startTotal;
+    const out = state.controller.update(dt, state.tracker.speed, state.plan.remaining(total), now);
+    drive.setAmp(out.amp);
+    if (out.amp > DRIVE_QUIET) haptic.tick(now);
+    if (out.stalled) setBanner("Not moving — smoother surface, case off, volume up", "bad");
+  }
+
   /** Called on every sensor sample once armed. */
   function evaluate() {
     const total = state.tracker.total - state.startTotal;
@@ -797,6 +1206,9 @@
     state.level = Math.abs(state.gamma) < LEVEL_ROLL && Math.abs(Math.abs(state.beta) - 90) < LEVEL_PITCH;
 
     if (settings.mode === "manual") return;   // auto + guide both pace themselves
+    // Never trip the shutter while the speaker is shoving the phone around —
+    // that is exactly the moment the frame would smear.
+    if (drive.running && drive.amp > DRIVE_QUIET) return;
     const due = state.plan.update(total);
     if (due.length) {
       const dir = state.plan.direction === 0 ? 1 : state.plan.direction;
@@ -931,6 +1343,13 @@
     $("hudLevel").textContent = state.level ? "OK" : "Tilt";
     $("hudLevelChip").classList.toggle("alert", !state.level);
 
+    if (settings.drive === "self") {
+      const c = state.controller;
+      $("hudDriveState").textContent = state.tuning ? "tune" : (c ? c.state : "—");
+      $("hudDriveTone").textContent = Math.round(drive.effectiveCarrier) + "Hz";
+      $("hudDrivePower").textContent = Math.round(drive.amp * 100) + "%";
+    }
+
     if (!state.armed) return;
     if (state.tooFast) setBanner("Slow down — frames will blur", "");
     else if (!state.level) setBanner("Hold the phone upright", "");
@@ -973,10 +1392,13 @@
       $("video").classList.toggle("hidden", settings.mode === "guide");
       $("guidebg").classList.toggle("show", settings.mode === "guide");
       $("shutter").classList.toggle("hidden", settings.mode !== "manual");
+      $("driveHud").classList.toggle("show", settings.drive === "self");
       showScreen("live");
       sizeDial();
       loop();
       watchSensorHealth();
+
+      if (settings.drive === "self") await startDrive();
       await leadIn();
     } catch (err) {
       teardown();
@@ -986,6 +1408,45 @@
       btn.disabled = false;
       btn.textContent = "Allow sensors & start";
     }
+  }
+
+  /** Bring the speaker drive up and tune it to whatever the phone is sitting on. */
+  async function startDrive() {
+    state.driveError = "";
+    try {
+      await drive.start(audio.ctx);
+    } catch (err) {
+      state.driveError = err && err.message ? err.message : String(err);
+      setBanner("Vibration drive unavailable — spin by hand", "bad");
+      return;
+    }
+    renderTuner([]);
+    $("tuner").classList.add("show");
+    await autoTune(renderTuner);
+    $("tuner").classList.remove("show");
+    if (state.tuneResults && state.tuneResults.length) {
+      const best = state.tuneResults.reduce((a, b) => (b.score > a.score ? b : a));
+      if (best.score <= 0.4) {
+        setBanner("Nothing moved while tuning — try a harder, smoother surface", "bad");
+      }
+    }
+  }
+
+  function renderTuner(results) {
+    const box = $("tuneBars");
+    const total = TUNE_CARRIERS.length * TUNE_DUTIES.length;
+    const best = results.length ? results.reduce((a, b) => (b.score > a.score ? b : a)) : null;
+    const top = best && best.score > 0 ? best.score : 1;
+    let html = "";
+    for (let i = 0; i < total; i++) {
+      const r = results[i];
+      const h = r ? Math.max(4, Math.round((r.score / top) * 120)) : 4;
+      let cls = r && best && r === best ? "tbar best" : (i === results.length ? "tbar cur" : "tbar");
+      if (i === TUNE_CARRIERS.length) cls += " split";   // second stroke polarity
+      const carrier = TUNE_CARRIERS[i % TUNE_CARRIERS.length];
+      html += '<div class="' + cls + '" style="height:' + h + 'px"><i>' + carrier + '</i></div>';
+    }
+    box.innerHTML = html;
   }
 
   function watchSensorHealth() {
@@ -1028,6 +1489,7 @@
     setTimeout(() => { if (state.armed) setBanner(""); }, 2200);
     if (settings.mode === "manual") manualShot();      // origin frame
     else evaluate();                                   // fires shot #0 at the origin
+    if (settings.drive === "self" && drive.running) startControlLoop();
   }
 
   function manualShot() {
@@ -1050,6 +1512,10 @@
     cancelAnimationFrame(state.rafId);
     clearInterval(state.countdownTimer);
     clearTimeout(state.sensorTimer);
+    state.tuning = false;
+    stopControlLoop();
+    drive.stop();
+    $("tuner").classList.remove("show");
     $("countdown").classList.remove("show");
     setBanner("");
     stopSensors();
@@ -1068,12 +1534,16 @@
   function teardown() {
     state.running = false;
     state.armed = false;
+    state.tuning = false;
     cancelAnimationFrame(state.rafId);
     clearInterval(state.countdownTimer);
     clearTimeout(state.sensorTimer);
+    stopControlLoop();
+    drive.stop();
     stopSensors();
     stopCamera();
     releaseWakeLock();
+    $("tuner").classList.remove("show");
     $("countdown").classList.remove("show");
     setBanner("");
   }
@@ -1169,6 +1639,7 @@
   $("finishBtn").addEventListener("click", () => finish(state.plan ? state.plan.done : false));
   $("abortBtn").addEventListener("click", () => { teardown(); clearShots(); showScreen("setup"); });
   $("zipBtn").addEventListener("click", downloadZip);
+  $("tuneSkip").addEventListener("click", () => { state.tuning = false; });
   $("againBtn").addEventListener("click", () => { clearShots(); start(); });
   $("backBtn").addEventListener("click", () => { clearShots(); showScreen("setup"); });
 
@@ -1183,10 +1654,30 @@
    * ===================================================================== */
 
   window.__gyro = {
-    core: { angleDelta, norm360, orientationAxes, headingFromOrientation, RotationTracker, ShotPlan, maxGapError, crc32, makeZip },
+    core: {
+      angleDelta, norm360, orientationAxes, headingFromOrientation, RotationTracker, ShotPlan,
+      maxGapError, crc32, makeZip, strokeWave, waveStats, VibeDrive, SpinController
+    },
     settings: settings,
     state: state,
     ui: ui,
+    drive: drive,
+    /** Live drive telemetry for the closed-loop tests. */
+    driveState() {
+      return {
+        running: drive.running,
+        amp: drive.amp,
+        carrier: drive.effectiveCarrier,
+        duty: drive.params.duty,
+        stroke: drive.params.stroke,
+        rms: drive.rms(),
+        ctx: drive.ctx ? drive.ctx.state : null,
+        controller: state.controller ? state.controller.state : null,
+        stalled: state.controller ? state.controller.stalled : false,
+        tuning: state.tuning,
+        results: state.tuneResults
+      };
+    },
     snapshot() {
       return {
         screen: ui.screen,
