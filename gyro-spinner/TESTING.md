@@ -1,6 +1,6 @@
 # QA report — Gyro Spinner
 
-Automated suite: **39 tests, all passing**, plus repeat runs to check for flakiness. Engine:
+Automated suite: **45 tests, all passing**, plus repeat runs to check for flakiness. Engine:
 Chromium 1194 via Playwright, iPhone-sized viewports, fake camera device, synthetic
 orientation samples fed through the app's real sensor entry point, and — for the self-spin
 drive — a simulated phone-on-a-surface driven by the app's own audio output.
@@ -18,8 +18,13 @@ fake camera device. Set `CHROMIUM_PATH` to use a pre-installed browser binary.
 
 ## What is covered
 
-**Vibration drive (unit, 4 tests)**
+**Vibration drive (unit, 7 tests)**
 
+- `channelWaves`: the two drivers are exactly anti-correlated in torque mode (correlation
+  −1.000), identical in mono (+1.000), and largely decorrelated in alternate — with equal
+  energy per driver and negligible DC in all three.
+- Squaring the carrier off raises RMS by more than 20% while peak excursion stays at 1.0,
+  which is the whole point: a speaker is peak-limited, not power-limited.
 - `strokeWave`: peak-normalised, finite, no DC offset a speaker could not reproduce. The
   physical claim is asserted directly — the two halves of the stroke carry **equal momentum**
   (areas within 10% of each other) but peak forces in a 1 : 0.25 ratio, which is what breaks
@@ -32,7 +37,7 @@ fake camera device. Set `CHROMIUM_PATH` to use a pre-installed browser binary.
 - Stall detection fires after sustained full power with no rotation, and never fires while
   the phone is turning.
 
-**Vibration drive (end-to-end, 7 tests)**
+**Vibration drive and drive lab (end-to-end, 10 tests)**
 
 These feed the app's real drive output into a plant model — resonant response curve, kinetic
 friction, a static-friction threshold, and a much weaker response to the wrong stroke
@@ -42,9 +47,16 @@ loop is under test: waveform → amplitude → movement → gyro → shutter.
 - The speaker genuinely emits the waveform: audio context running, measured output RMS > 0.05
   at the analyser while driving, carrier an exact multiple of the stroke rate, and true
   silence (RMS < 0.01) after cancel.
-- Tuning finds the **plant's resonance** (within 45 Hz of a 220 Hz peak, from six candidates)
-  and the correct stroke polarity, with the losing polarity scoring at least 1.5× worse —
-  proving the sweep measures rather than guesses.
+- Tuning is a 17-measurement coordinate descent, and it lands on the plant's true preference
+  on **every axis**: carrier within 45 Hz of its 220 Hz resonance, stroke rate within 4 Hz of
+  its 8 Hz rocking peak, antiphase pairing, and the working stroke polarity. The losing
+  polarity and the losing pairing each score at least 1.5× worse — the sweep measures rather
+  than guesses.
+- Drive lab: sliders and pairing buttons write through to the running drive live; the gyro
+  readout tracks and holds a peak; stopping the drive returns amplitude to zero. A sweep on a
+  movable plant produces the "It moves" verdict with a ranked table and dials the winner into
+  the controls; a sweep on an immovable one produces the "Nothing shifted it" verdict, which
+  is asserted to name the mechanical fixes rather than telling the user to try again.
 - **Full self-spin run**: the simulated phone is walked past 300° by the drive alone, all 12
   frames captured, and — the claim that matters — **not one frame taken while the drive was
   pushing**; every capture is asserted to have happened at amplitude ≤ 0.08.

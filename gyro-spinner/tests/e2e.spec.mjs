@@ -498,12 +498,16 @@ test.describe('layout', () => {
  * ------------------------------------------------------------------------ */
 
 const PLANT = {
-  k: 90,            // deg/s^2 of drive at full amplitude, on resonance
-  peak: 220,        // the surface's resonant carrier, in Hz
-  width: 80,        // how sharp that resonance is
-  friction: 35,     // deg/s^2 of kinetic drag once it is moving
-  stick: 20,        // drive needed to break static friction
-  reverseGain: 0.3, // the wrong stroke polarity barely moves it
+  k: 90,             // deg/s^2 of drive at full amplitude, at the best setting
+  peak: 220,         // the surface's resonant carrier, in Hz
+  width: 80,         // how sharp that resonance is
+  strokePeak: 8,     // the body's rocking resonance, in Hz
+  strokeWidth: 6,
+  friction: 35,      // deg/s^2 of kinetic drag once it is moving
+  stick: 20,         // drive needed to break static friction
+  reverseGain: 0.3,  // the wrong stroke polarity barely moves it
+  // Antiphase drivers make a couple; pushing together mostly just slides it.
+  modeGain: { torque: 1, mono: 0.35, alternate: 0.6 },
 };
 
 async function installPlant(page, cfg = PLANT) {
@@ -521,8 +525,10 @@ async function installPlant(page, cfg = PLANT) {
           const d = window.__gyro.driveState();
           if (d.amp > p.maxAmp) p.maxAmp = d.amp;
           const resonance = Math.exp(-Math.pow((d.carrier - c.peak) / c.width, 2));
+          const rocking = Math.exp(-Math.pow((d.stroke - c.strokePeak) / c.strokeWidth, 2));
           const polarity = d.duty < 0.5 ? 1 : c.reverseGain;
-          const push = c.k * d.amp * resonance * polarity;
+          const pairing = c.modeGain[d.mode] == null ? 1 : c.modeGain[d.mode];
+          const push = c.k * d.amp * resonance * rocking * polarity * pairing;
           let acc = push;
           if (p.w > 0.5) acc -= c.friction;              // sliding
           else if (push < c.stick) { acc = 0; p.w = 0; } // stuck
@@ -587,14 +593,25 @@ test.describe('self-spin drive', () => {
 
     await expect(page.locator('#tuner')).toBeHidden({ timeout: 60000 });
     const st = await page.evaluate(() => window.__gyro.driveState());
-    expect(st.results.length).toBe(12);                       // 6 carriers x 2 polarities
-    // It must land on the plant's resonance, not just any tone that made noise.
+    // Coordinate descent: 7 carriers + 5 stroke rates + 3 pairings + 2 polarities.
+    expect(st.results.length).toBe(17);
+    expect(st.results.filter((r) => r.stage === 'carrier').length).toBe(7);
+    expect(st.results.filter((r) => r.stage === 'stroke').length).toBe(5);
+    expect(st.results.filter((r) => r.stage === 'mode').length).toBe(3);
+
+    // Every axis must land on the plant's actual preference, not just any
+    // setting that made noise.
     expect(Math.abs(st.carrier - PLANT.peak), `tuned to ${st.carrier}Hz`).toBeLessThan(45);
-    expect(st.duty).toBeLessThan(0.5);                        // the polarity that moves it
-    // The losing polarity scored far worse — the sweep is measuring, not guessing.
-    const fwd = st.results.filter((r) => r.duty < 0.5).reduce((a, b) => (b.score > a.score ? b : a));
-    const rev = st.results.filter((r) => r.duty > 0.5).reduce((a, b) => (b.score > a.score ? b : a));
-    expect(fwd.score).toBeGreaterThan(rev.score * 1.5);
+    expect(Math.abs(st.stroke - PLANT.strokePeak), `stroke ${st.stroke}Hz`).toBeLessThanOrEqual(4);
+    expect(st.mode, 'antiphase gives the most rotation in this plant').toBe('torque');
+    expect(st.duty).toBeLessThan(0.5);
+    expect(st.tuneBest).toBeGreaterThan(1);
+
+    // The losing options scored clearly worse — the sweep measures, it does not guess.
+    const bestOf = (stage, pick) => st.results.filter((r) => r.stage === stage && pick(r.value))
+      .reduce((a, b) => (b.score > a.score ? b : a));
+    expect(bestOf('duty', (v) => v < 0.5).score).toBeGreaterThan(bestOf('duty', (v) => v > 0.5).score * 1.5);
+    expect(bestOf('mode', (v) => v === 'torque').score).toBeGreaterThan(bestOf('mode', (v) => v === 'mono').score * 1.5);
     await page.evaluate(() => window.__stopPlant());
   });
 
@@ -706,4 +723,104 @@ test.describe('self-spin layout', () => {
       await page.evaluate(() => window.__stopPlant());
     });
   }
+});
+
+test.describe('drive lab', () => {
+  test('manual controls drive the speaker and read the gyro back', async ({ page }) => {
+    const errors = watchErrors(page);
+    await installPlant(page);
+    await page.goto('/index.html');
+    await page.click('#labBtn');
+    await expect(page.locator('#lab')).toHaveClass(/active/);
+    await page.evaluate(() => window.__startPlant());
+
+    // Sliders write straight through to the running drive.
+    await page.locator('#labCarrier').fill('380');
+    await page.locator('#labStroke').fill('18');
+    await expect(page.locator('#labCarrierV')).toHaveText('380 Hz');
+    await expect(page.locator('#labStrokeV')).toHaveText('18 Hz');
+
+    await page.click('#labRun');
+    await expect(page.locator('#labRun')).toHaveText('Stop drive');
+    await page.waitForTimeout(600);
+    let st = await page.evaluate(() => window.__gyro.driveState());
+    expect(st.running).toBe(true);
+    expect(st.amp).toBeGreaterThan(0.9);
+    expect(st.rms).toBeGreaterThan(0.05);
+    expect(st.stroke).toBe(18);
+    expect(Math.abs(st.carrier - 380)).toBeLessThanOrEqual(18);
+
+    // Speaker pairing is switchable live.
+    await page.click('#labModeSeg .opt[data-mode="mono"]');
+    expect((await page.evaluate(() => window.__gyro.driveState())).mode).toBe('mono');
+
+    // Power slider is honoured.
+    await page.locator('#labAmp').fill('40');
+    await page.waitForTimeout(200);
+    expect((await page.evaluate(() => window.__gyro.driveState())).amp).toBeCloseTo(0.4, 1);
+
+    // 380 Hz / 18 Hz stroke / mono is far off this plant's resonance, so it has
+    // not moved yet — which is itself the honest reading.
+    await expect(page.locator('#labPeak')).toHaveText('0.0');
+
+    // Dial in what this plant actually responds to and it starts turning.
+    await page.click('#labModeSeg .opt[data-mode="torque"]');
+    await page.locator('#labCarrier').fill('220');
+    await page.locator('#labStroke').fill('8');
+    await page.locator('#labAmp').fill('100');
+    await expect(page.locator('#labPeak')).not.toHaveText('0.0', { timeout: 10000 });
+    await expect(page.locator('#labNow')).not.toHaveText('0.0');
+
+    await page.click('#labRun');
+    await expect(page.locator('#labRun')).toHaveText('Start drive');
+    await page.waitForTimeout(200);
+    expect((await page.evaluate(() => window.__gyro.driveState())).amp).toBe(0);
+
+    await page.evaluate(() => window.__stopPlant());
+    await page.click('#labBack');
+    await expect(page.locator('#setup')).toHaveClass(/active/);
+    expect(errors).toEqual([]);
+  });
+
+  test('sweep reports the winning setting when the phone can move', async ({ page }) => {
+    test.setTimeout(180000);
+    await installPlant(page);
+    await page.goto('/index.html');
+    await page.click('#labBtn');
+    await page.evaluate(() => window.__startPlant());
+    await page.click('#labSweep');
+    await expect(page.locator('#labVerdict')).toBeVisible({ timeout: 120000 });
+    await expect(page.locator('#labVerdict')).toHaveClass(/good/);
+    await expect(page.locator('#labVerdict')).toContainText('It moves.');
+    await expect(page.locator('#labVerdict')).toContainText('°/s');
+    await page.screenshot({ path: path.join(OUT, 'lab-verdict-good.png'), fullPage: true });
+    // Ranked table, best first, and the controls now show the winner.
+    const rows = await page.locator('#labResults .lrow').count();
+    expect(rows).toBe(6);
+    await expect(page.locator('#labResults .lrow').first()).toHaveClass(/top/);
+    expect(Number(await page.locator('#labCarrierV').textContent().then((t) => parseInt(t, 10))))
+      .toBeGreaterThan(150);
+    const st = await page.evaluate(() => window.__gyro.driveState());
+    expect(st.amp).toBe(0);                      // sweep leaves the drive quiet
+    await page.evaluate(() => window.__stopPlant());
+  });
+
+  test('sweep gives a straight answer when nothing can move the phone', async ({ page }) => {
+    test.setTimeout(180000);
+    await installPlant(page, { ...PLANT, stick: 500, k: 10 });
+    await page.goto('/index.html');
+    await page.click('#labBtn');
+    await page.evaluate(() => window.__startPlant());
+    await page.click('#labSweep');
+    await expect(page.locator('#labVerdict')).toBeVisible({ timeout: 120000 });
+    await expect(page.locator('#labVerdict')).toHaveClass(/bad/);
+    await expect(page.locator('#labVerdict')).toContainText('Nothing shifted it');
+    // It says what would actually help, rather than telling them to try again.
+    await expect(page.locator('#labVerdict')).toContainText('turntable');
+    await expect(page.locator('#labVerdict')).toContainText('Hand spin');
+    await page.screenshot({ path: path.join(OUT, 'lab-verdict-bad.png'), fullPage: true });
+    const plant = await page.evaluate(() => window.__plant);
+    expect(plant.theta).toBeLessThan(1);
+    await page.evaluate(() => window.__stopPlant());
+  });
 });

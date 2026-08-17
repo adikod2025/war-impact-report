@@ -328,3 +328,69 @@ test('SpinController reports a stall when full power moves nothing', async ({ pa
   expect(r.minAmp).toBeGreaterThanOrEqual(0);
   expect(r.movingStalled).toBe(false);   // a phone that is turning is never stalled
 });
+
+test('channelWaves turns two speakers into a torque couple', async ({ page }) => {
+  const r = await page.evaluate(() => {
+    const { channelWaves } = window.__gyro.core;
+    const n = 3675, cycles = 18, duty = 0.2;
+    const sum = (a) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i]; return s; };
+    const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; };
+    const out = {};
+    for (const mode of ['mono', 'torque', 'alternate']) {
+      const [L, R] = channelWaves(n, cycles, duty, 1, mode);
+      // Correlation of the two channels: +1 = identical push, -1 = pure couple.
+      out[mode] = {
+        corr: dot(L, R) / Math.sqrt(dot(L, L) * dot(R, R)),
+        sameEnergy: Math.abs(dot(L, L) - dot(R, R)) / dot(L, L),
+        netDc: Math.abs(sum(L) + sum(R)) / n,   // per-sample DC across both drivers
+        len: R.length,
+      };
+    }
+    return out;
+  });
+  // Both ends shove together: one net force, no torque.
+  expect(r.mono.corr).toBeCloseTo(1, 6);
+  // Antiphase: the ends fight each other, which is exactly the couple we want.
+  expect(r.torque.corr).toBeCloseTo(-1, 6);
+  // Alternate: half a period apart, so largely decorrelated.
+  expect(Math.abs(r.alternate.corr)).toBeLessThan(0.5);
+  // Whatever the pairing, both drivers do equal work and the ends stay balanced.
+  for (const mode of ['mono', 'torque', 'alternate']) {
+    expect(r[mode].sameEnergy, mode).toBeLessThan(1e-6);
+    expect(r[mode].netDc, mode).toBeLessThan(0.005);   // no DC for a speaker to choke on
+    expect(r[mode].len, mode).toBe(3675);
+  }
+});
+
+test('squaring the stroke off buys energy at the same peak excursion', async ({ page }) => {
+  const r = await page.evaluate(() => {
+    const { strokeWave } = window.__gyro.core;
+    const rms = (a) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * a[i]; return Math.sqrt(s / a.length); };
+    const peak = (a) => { let p = 0; for (let i = 0; i < a.length; i++) p = Math.max(p, Math.abs(a[i])); return p; };
+    const sine = strokeWave(3675, 18, 0.2, 0);
+    const clipped = strokeWave(3675, 18, 0.2, 1);
+    return { sinePeak: peak(sine), clipPeak: peak(clipped), sineRms: rms(sine), clipRms: rms(clipped) };
+  });
+  // A speaker is limited by excursion, so peak must not grow...
+  expect(r.sinePeak).toBeCloseTo(1, 3);
+  expect(r.clipPeak).toBeCloseTo(1, 3);
+  // ...but the clipped stroke delivers materially more energy inside that limit.
+  expect(r.clipRms).toBeGreaterThan(r.sineRms * 1.2);
+});
+
+test('VibeDrive writes both channels of the loop buffer', async ({ page }) => {
+  const r = await page.evaluate(() => {
+    const { VibeDrive } = window.__gyro.core;
+    const d = new VibeDrive();
+    d.ctx = new OfflineAudioContext(2, 44100, 44100);
+    d.params = { carrier: 210, stroke: 12, duty: 0.2, shape: 1, mode: 'torque' };
+    const buf = d.buildBuffer();
+    const L = buf.getChannelData(0), R = buf.getChannelData(1);
+    let maxDiff = 0;
+    for (let i = 0; i < L.length; i += 7) maxDiff = Math.max(maxDiff, Math.abs(L[i] + R[i]));
+    return { channels: buf.numberOfChannels, len: buf.length, maxDiff };
+  });
+  expect(r.channels).toBe(2);
+  expect(r.len).toBe(3675);
+  expect(r.maxDiff).toBeLessThan(1e-6);   // R is exactly -L: a clean couple
+});

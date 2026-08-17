@@ -129,6 +129,7 @@
   .tbar i { position: absolute; bottom: -17px; left: 50%; transform: translateX(-50%); font-size: 8.5px; font-style: normal; color: var(--muted); }
   .tbar.split { margin-left: 16px; }
   #tuneLegend { font-size: 11px; color: var(--muted); margin: 14px 0 2px; }
+  #tuneStage { font-size: 12px; color: var(--accent); text-transform: uppercase; letter-spacing: .7px; font-weight: 600; margin-bottom: 4px; }
 
   #banner {
     position: absolute; left: 12px; right: 12px; top: calc(var(--safe-t) + 74px);
@@ -174,6 +175,31 @@
   .stat b { display: block; font-size: 19px; font-variant-numeric: tabular-nums; }
   .stat span { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
   .actions { display: grid; gap: 9px; margin-top: 4px; }
+  /* ---------- Drive lab ---------- */
+  #lab { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: calc(var(--safe-t) + 16px) 16px calc(var(--safe-b) + 24px); }
+  .labread { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+  .labread > div { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 8px; text-align: center; }
+  .labread b { display: block; font-size: 24px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .labread span { font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .verdict { display: none; border-radius: 12px; padding: 11px 13px; font-size: 13.5px; line-height: 1.45; margin-bottom: 12px; }
+  .verdict.show { display: block; }
+  .verdict.good { background: rgba(0,229,160,.12); border: 1px solid rgba(0,229,160,.45); color: #9df3d6; }
+  .verdict.bad { background: rgba(255,77,94,.12); border: 1px solid rgba(255,77,94,.45); color: #ffc2c8; }
+  .slider { margin-bottom: 14px; }
+  .slider:last-child { margin-bottom: 2px; }
+  .slider label { display: flex; justify-content: space-between; font-size: 13.5px; color: var(--muted); margin-bottom: 7px; }
+  .slider label b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .slider input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 30px; background: transparent; }
+  .slider input[type=range]::-webkit-slider-runnable-track { height: 5px; border-radius: 3px; background: var(--panel-2); border: 1px solid var(--line); }
+  .slider input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); margin-top: -11px; }
+  .slider input[type=range]::-moz-range-track { height: 5px; border-radius: 3px; background: var(--panel-2); }
+  .slider input[type=range]::-moz-range-thumb { width: 24px; height: 24px; border: none; border-radius: 50%; background: var(--accent); }
+  #labResults { margin-top: 14px; }
+  .lrow { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+  .lrow span { color: var(--muted); }
+  .lrow b { font-variant-numeric: tabular-nums; }
+  .lrow.top b { color: var(--accent); }
+
   a.dl { display: none; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 </style>
@@ -251,6 +277,7 @@
     <input type="checkbox" switch id="hapticSwitch" class="sr" aria-hidden="true" tabindex="-1">
 
     <button class="btn" id="startBtn">Allow sensors &amp; start</button>
+    <button class="btn ghost" id="labBtn" style="margin-top:9px">Drive lab — test if it can move at all</button>
     <p class="hint" style="text-align:center">iOS asks for Motion &amp; Camera access on the next tap. Hold the phone upright, spin smoothly, and keep the subject centred.</p>
   </section>
 
@@ -278,9 +305,10 @@
 
     <div id="tuner">
       <h2>Tuning the drive</h2>
-      <p>Finding the tone this phone and this surface respond to. Leave it where it is standing.</p>
+      <p>Finding what moves this phone on this surface. Leave it where it is standing.</p>
+      <div id="tuneStage"></div>
       <div id="tuneBars"></div>
-      <div id="tuneLegend">carrier tone, Hz — swept for each of the two stroke polarities</div>
+      <div id="tuneLegend"></div>
       <button class="mini" id="tuneSkip">Skip tuning</button>
     </div>
 
@@ -308,6 +336,51 @@
     </div>
     <p class="hint" id="saveHint">Tap and hold any frame to save it straight to Photos. The .zip lands in Files → Downloads. Frames are saved at the full camera frame, which is slightly wider than the on-screen preview.</p>
     <a id="dlAnchor" class="dl"></a>
+  </section>
+
+  <!-- ============ DRIVE LAB ============ -->
+  <section id="lab" class="screen">
+    <div class="brand"><h1>Drive lab</h1></div>
+    <p class="sub">Full manual control of the drive, with the gyro reading out live. Use it to find
+      what shifts your phone on your surface — or to prove nothing does.</p>
+
+    <div class="labread">
+      <div><b id="labNow">0.0</b><span>°/s now</span></div>
+      <div><b id="labPeak">0.0</b><span>°/s peak</span></div>
+      <div><b id="labOut">0%</b><span>output</span></div>
+    </div>
+    <div id="labVerdict" class="verdict"></div>
+
+    <div class="card">
+      <div class="label">Drive</div>
+      <div class="slider"><label>Tone <b id="labCarrierV">200 Hz</b></label>
+        <input type="range" id="labCarrier" min="40" max="900" step="10" value="200"></div>
+      <div class="slider"><label>Stroke rate <b id="labStrokeV">12 Hz</b></label>
+        <input type="range" id="labStroke" min="3" max="40" step="1" value="12"></div>
+      <div class="slider"><label>Power <b id="labAmpV">100%</b></label>
+        <input type="range" id="labAmp" min="0" max="100" step="5" value="100"></div>
+    </div>
+
+    <div class="card">
+      <div class="label">Speaker pairing</div>
+      <div class="seg cols-3" id="labModeSeg">
+        <button class="opt" data-mode="torque" aria-pressed="true">Antiphase<small>torque</small></button>
+        <button class="opt" data-mode="mono" aria-pressed="false">Together<small>push</small></button>
+        <button class="opt" data-mode="alternate" aria-pressed="false">Alternate<small>walk</small></button>
+      </div>
+      <div class="label" style="margin-top:14px">Stroke shape</div>
+      <div class="seg cols-2" id="labShapeSeg">
+        <button class="opt" data-duty="0.2" aria-pressed="true">Shove early<small>duty 0.2</small></button>
+        <button class="opt" data-duty="0.8" aria-pressed="false">Shove late<small>duty 0.8</small></button>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn" id="labRun">Start drive</button>
+      <button class="btn ghost" id="labSweep">Sweep everything (~25s)</button>
+      <button class="btn ghost" id="labBack">Back to settings</button>
+    </div>
+    <div id="labResults"></div>
   </section>
 </div>
 
@@ -481,9 +554,14 @@
    *                  0.5 reverses which half breaks friction, which is the
    *                  only direction control a speaker gives you.
    */
-  function strokeWave(length, cycles, duty) {
+  function strokeWave(length, cycles, duty, shape) {
     const out = new Float32Array(length);
     const d = Math.min(0.9, Math.max(0.1, duty));
+    // A speaker is limited by cone excursion, i.e. by PEAK, not by average. So
+    // squaring the carrier off buys real mechanical energy for free: same peak
+    // travel, far more area under it.
+    const k = 1 + 9 * (shape || 0);
+    const norm = Math.tanh(k);
     let peak = 0;
     for (let i = 0; i < length; i++) {
       const t = i / length;
@@ -492,12 +570,35 @@
       const env = t < d
         ? Math.sin(Math.PI * t / d)
         : -(d / (1 - d)) * Math.sin(Math.PI * (t - d) / (1 - d));
-      out[i] = env * Math.sin(2 * Math.PI * cycles * i / length);
+      const s = Math.sin(2 * Math.PI * cycles * i / length);
+      out[i] = env * (shape ? Math.tanh(k * s) / norm : s);
       const a = Math.abs(out[i]);
       if (a > peak) peak = a;
     }
     if (peak > 0) for (let i = 0; i < length; i++) out[i] /= peak;
     return out;
+  }
+
+  /**
+   * Split the stroke across the phone's two speakers.
+   *
+   * An iPhone's drivers sit at opposite ends of the body, ~14 cm apart. Driving
+   * them together is a single shove that makes the phone wander. Driving them
+   * in ANTIPHASE turns that lever arm into a couple: near-zero net force, pure
+   * torque about the phone's centre — which is the thing we actually want.
+   */
+  function channelWaves(length, cycles, duty, shape, mode) {
+    const a = strokeWave(length, cycles, duty, shape);
+    const b = new Float32Array(length);
+    if (mode === "mono") {
+      b.set(a);                                     // both ends shove together
+    } else if (mode === "alternate") {
+      const half = Math.floor(length / 2);          // ends shove in turn: a walk
+      for (let i = 0; i < length; i++) b[i] = a[(i + half) % length];
+    } else {
+      for (let i = 0; i < length; i++) b[i] = -a[i]; // torque couple (default)
+    }
+    return [a, b];
   }
 
   /** Mean and peak of a signal — used by the tests and the tuning readout. */
@@ -521,7 +622,7 @@
   class VibeDrive {
     constructor() {
       this.ctx = null; this.gain = null; this.src = null; this.analyser = null;
-      this.params = { carrier: 210, stroke: 12, duty: 0.2 };
+      this.params = { carrier: 210, stroke: 12, duty: 0.2, shape: 1, mode: "torque" };
       this.amp = 0;
       this.running = false;
       this.effectiveCarrier = 210;
@@ -536,10 +637,16 @@
         this.ctx = shared || new C();
         this.gain = this.ctx.createGain();
         this.gain.gain.value = 0;
+        this.gain.channelCount = 2;
+        this.gain.channelCountMode = "explicit";     // keep the two ends separate
         this.analyser = this.ctx.createAnalyser();
         this.analyser.fftSize = 2048;
-        this.gain.connect(this.analyser);
-        this.analyser.connect(this.ctx.destination);
+        // Measure one channel only: an antiphase pair downmixes to silence, and
+        // that would make a working torque drive look dead.
+        this.splitter = this.ctx.createChannelSplitter(2);
+        this.gain.connect(this.splitter);
+        this.splitter.connect(this.analyser, 0);
+        this.gain.connect(this.ctx.destination);
       }
       if (this.ctx.state === "suspended") {
         // Never let a wedged audio context block the whole session.
@@ -550,13 +657,16 @@
     }
     buildBuffer() {
       const sr = this.ctx.sampleRate;
-      const len = Math.max(64, Math.round(sr / this.params.stroke));
-      const cycles = Math.max(1, Math.round(this.params.carrier / this.params.stroke));
-      this.effectiveCarrier = cycles * this.params.stroke;
-      const data = strokeWave(len, cycles, this.params.duty);
-      const buf = this.ctx.createBuffer(1, len, sr);
-      if (buf.copyToChannel) buf.copyToChannel(data, 0);
-      else buf.getChannelData(0).set(data);
+      const p = this.params;
+      const len = Math.max(64, Math.round(sr / p.stroke));
+      const cycles = Math.max(1, Math.round(p.carrier / p.stroke));
+      this.effectiveCarrier = cycles * p.stroke;
+      const chans = channelWaves(len, cycles, p.duty, p.shape, p.mode);
+      const buf = this.ctx.createBuffer(2, len, sr);
+      for (let c = 0; c < 2; c++) {
+        if (buf.copyToChannel) buf.copyToChannel(chans[c], c);
+        else buf.getChannelData(c).set(chans[c]);
+      }
       return buf;
     }
     restart() {
@@ -872,6 +982,8 @@
     driveTick: 0,
     tuning: false,
     tuneResults: null,
+    tuneBest: 0,
+    labRunning: false,
     driveError: ""
   };
 
@@ -883,12 +995,22 @@
   const DRIVE_QUIET = 0.08; // drive amplitude below which a frame is safe to take
   const DRIVE_TICK = 50;   // ms between control updates
 
-  // Carrier sweep for tuning. A phone body plus whatever it is standing on has
-  // sharp mechanical resonances; a few tens of Hz either side of one is the
-  // difference between crawling and sitting still, and it changes with every
-  // surface, so it has to be measured rather than assumed.
-  const TUNE_CARRIERS = [90, 130, 175, 220, 280, 350];
+  // Tuning search space. A phone body plus whatever it is standing on has sharp
+  // mechanical resonances; a few tens of Hz either side of one is the difference
+  // between crawling and sitting still, and it changes with every surface, so it
+  // has to be measured rather than assumed. Sweeping all four axes together
+  // would take minutes, so it is a coordinate descent: fix the best carrier,
+  // then the best stroke rate on top of it, and so on.
+  const TUNE_CARRIERS = [90, 140, 200, 280, 380, 520, 700];  // up into the speaker's own efficient band
+  const TUNE_STROKES = [5, 8, 12, 18, 26];                   // the body's rocking rate
+  const TUNE_MODES = ["torque", "mono", "alternate"];
   const TUNE_DUTIES = [0.2, 0.8];
+  const TUNE_STAGES = [
+    { key: "carrier", label: "Tone", values: TUNE_CARRIERS, unit: "Hz" },
+    { key: "stroke", label: "Stroke rate", values: TUNE_STROKES, unit: "Hz" },
+    { key: "mode", label: "Speaker pairing", values: TUNE_MODES, unit: "" },
+    { key: "duty", label: "Stroke polarity", values: TUNE_DUTIES, unit: "" }
+  ];
 
   /* =====================================================================
    *  4. Setup screen wiring
@@ -1129,46 +1251,64 @@
     }
   }
 
+  /**
+   * Run the drive at one setting and report the rotation it *adds*, in deg/s.
+   * Every measurement starts from rest, or a good setting leaves the phone
+   * coasting and the next one takes the credit for it.
+   */
+  async function measureSetting(params) {
+    drive.setParams(params);
+    await settleQuiet(900);
+    const base = state.tracker.speed;
+    drive.setAmp(1);
+    await sleep(220);                         // let it get going
+    let sum = 0, n = 0;
+    const until = performance.now() + 420;
+    while (performance.now() < until) {
+      sum += state.tracker.speed;
+      n++;
+      await sleep(30);
+    }
+    drive.setAmp(0);
+    return Math.max(0, (n ? sum / n : 0) - base);
+  }
+
+  /** Coordinate descent over carrier, stroke rate, speaker pairing, polarity. */
   async function autoTune(onProgress) {
     state.tuning = true;
     const results = [];
+    const best = { carrier: 200, stroke: 12, mode: "torque", duty: 0.2, shape: 1 };
+    let bestScore = -1;
     try {
-      for (let di = 0; di < TUNE_DUTIES.length; di++) {
-        for (let ci = 0; ci < TUNE_CARRIERS.length; ci++) {
-          if (!state.tuning || !state.running) return finishTune(results);
-          const carrier = TUNE_CARRIERS[ci], duty = TUNE_DUTIES[di];
-          drive.setParams({ carrier: carrier, duty: duty });
-          // Each candidate has to start from rest, or a good tone leaves the
-          // phone coasting and the next one takes the credit for it.
-          await settleQuiet(900);
-          const base = state.tracker.speed;
-          drive.setAmp(1);
-          await sleep(220);                       // let it get going
-          let sum = 0, n = 0;
-          const until = performance.now() + 420;
-          while (performance.now() < until) {
-            sum += state.tracker.speed;
-            n++;
-            await sleep(30);
-          }
-          drive.setAmp(0);
-          // Score the speed this tone *added*, not the speed it inherited.
-          results.push({ carrier: carrier, duty: duty, score: Math.max(0, (n ? sum / n : 0) - base) });
-          if (onProgress) onProgress(results);
+      for (let si = 0; si < TUNE_STAGES.length; si++) {
+        const stage = TUNE_STAGES[si];
+        let stageBest = null, stageScore = -1;
+        for (let vi = 0; vi < stage.values.length; vi++) {
+          if (!state.tuning || (!state.running && !state.labRunning)) return finishTune(results, best);
+          const trial = Object.assign({}, best);
+          trial[stage.key] = stage.values[vi];
+          const score = await measureSetting(trial);
+          results.push({ stage: stage.key, label: stage.label, value: stage.values[vi], unit: stage.unit, score: score });
+          if (score > stageScore) { stageScore = score; stageBest = stage.values[vi]; }
+          if (score > bestScore) bestScore = score;
+          if (onProgress) onProgress(results, si);
         }
+        if (stageBest !== null) best[stage.key] = stageBest;
       }
     } catch (e) { /* tuning is an optimisation, never a hard failure */ }
-    return finishTune(results);
+    return finishTune(results, best);
   }
 
-  function finishTune(results) {
+  function finishTune(results, best) {
     state.tuning = false;
     drive.setAmp(0);
     state.tuneResults = results;
-    if (!results.length) return null;
-    const best = results.reduce((a, b) => (b.score > a.score ? b : a));
-    if (best.score > 0.4) drive.setParams({ carrier: best.carrier, duty: best.duty });
-    return best;
+    const top = results.length ? results.reduce((a, b) => (b.score > a.score ? b : a)) : null;
+    state.tuneBest = top ? top.score : 0;
+    // Only adopt a tuned setting if something actually moved; otherwise keep the
+    // defaults rather than locking in noise.
+    if (best && top && top.score > 0.4) drive.setParams(best);
+    return top;
   }
 
   function startControlLoop() {
@@ -1420,33 +1560,34 @@
       setBanner("Vibration drive unavailable — spin by hand", "bad");
       return;
     }
-    renderTuner([]);
+    renderTuner([], 0);
     $("tuner").classList.add("show");
     await autoTune(renderTuner);
     $("tuner").classList.remove("show");
-    if (state.tuneResults && state.tuneResults.length) {
-      const best = state.tuneResults.reduce((a, b) => (b.score > a.score ? b : a));
-      if (best.score <= 0.4) {
-        setBanner("Nothing moved while tuning — try a harder, smoother surface", "bad");
-      }
+    if (state.tuneResults && state.tuneResults.length && state.tuneBest <= 0.4) {
+      setBanner("Nothing moved while tuning — see Drive lab", "bad");
     }
   }
 
-  function renderTuner(results) {
-    const box = $("tuneBars");
-    const total = TUNE_CARRIERS.length * TUNE_DUTIES.length;
-    const best = results.length ? results.reduce((a, b) => (b.score > a.score ? b : a)) : null;
+  function renderTuner(results, stageIndex) {
+    const si = stageIndex == null ? 0 : stageIndex;
+    const stage = TUNE_STAGES[Math.min(si, TUNE_STAGES.length - 1)];
+    const mine = results.filter((r) => r.stage === stage.key);
+    const best = mine.length ? mine.reduce((a, b) => (b.score > a.score ? b : a)) : null;
     const top = best && best.score > 0 ? best.score : 1;
     let html = "";
-    for (let i = 0; i < total; i++) {
-      const r = results[i];
+    for (let i = 0; i < stage.values.length; i++) {
+      const r = mine[i];
       const h = r ? Math.max(4, Math.round((r.score / top) * 120)) : 4;
-      let cls = r && best && r === best ? "tbar best" : (i === results.length ? "tbar cur" : "tbar");
-      if (i === TUNE_CARRIERS.length) cls += " split";   // second stroke polarity
-      const carrier = TUNE_CARRIERS[i % TUNE_CARRIERS.length];
-      html += '<div class="' + cls + '" style="height:' + h + 'px"><i>' + carrier + '</i></div>';
+      const cls = r && best && r === best && best.score > 0 ? "tbar best" : (i === mine.length ? "tbar cur" : "tbar");
+      html += '<div class="' + cls + '" style="height:' + h + 'px"><i>' + stage.values[i] + '</i></div>';
     }
-    box.innerHTML = html;
+    $("tuneBars").innerHTML = html;
+    $("tuneStage").textContent = stage.label + "  ·  step " + (si + 1) + " of " + TUNE_STAGES.length;
+    const peak = results.length ? results.reduce((a, b) => (b.score > a.score ? b : a)).score : 0;
+    $("tuneLegend").textContent = peak > 0.4
+      ? "best so far: " + peak.toFixed(1) + "°/s"
+      : "no movement detected yet";
   }
 
   function watchSensorHealth() {
@@ -1631,6 +1772,140 @@
   }
 
   /* =====================================================================
+   *  8b. Drive lab — manual control plus a straight answer
+   * ===================================================================== */
+
+  const lab = { open: false, peak: 0, timer: 0, sweeping: false };
+
+  function labVerdict(peak, params) {
+    const el = $("labVerdict");
+    el.className = "verdict show " + (peak > 0.4 ? "good" : "bad");
+    if (peak > 0.4) {
+      el.innerHTML = "<b>It moves.</b> Best measured " + peak.toFixed(1) + "°/s at " +
+        Math.round(params.carrier) + " Hz, " + params.stroke + " Hz stroke, " + params.mode +
+        ". That is enough to shoot with — go back and run a set.";
+    } else {
+      el.innerHTML = "<b>Nothing shifted it, at any setting.</b> The speaker cannot beat the friction " +
+        "holding your phone where it is. No change to the code will fix that — the fix is mechanical: " +
+        "stand the phone on a lazy-susan or bearing turntable, or on three marbles/pen barrels under a " +
+        "flat tray, or stick a few angled feet (toothpick tips, brush bristles, folded tape tabs) to the " +
+        "back so the buzz ratchets it round. Failing that, use Hand spin.";
+    }
+  }
+
+  function labSyncLabels() {
+    $("labCarrierV").textContent = $("labCarrier").value + " Hz";
+    $("labStrokeV").textContent = $("labStroke").value + " Hz";
+    $("labAmpV").textContent = $("labAmp").value + "%";
+  }
+
+  function labApply() {
+    drive.setParams({
+      carrier: parseInt($("labCarrier").value, 10),
+      stroke: parseInt($("labStroke").value, 10)
+    });
+    if (drive.running && !lab.sweeping) drive.setAmp(parseInt($("labAmp").value, 10) / 100);
+    labSyncLabels();
+  }
+
+  async function openLab() {
+    setupError("");
+    try {
+      await audio.unlock();
+      await requestMotionPermission();
+    } catch (err) {
+      setupError(err && err.message ? err.message : String(err));
+      return;
+    }
+    startSensors();
+    lab.open = true;
+    lab.peak = 0;
+    state.labRunning = true;
+    $("labVerdict").classList.remove("show");
+    $("labResults").innerHTML = "";
+    showScreen("lab");
+    labSyncLabels();
+    clearInterval(lab.timer);
+    lab.timer = setInterval(() => {
+      const s = state.tracker.speed;
+      if (s > lab.peak) lab.peak = s;
+      $("labNow").textContent = s.toFixed(1);
+      $("labPeak").textContent = lab.peak.toFixed(1);
+      $("labOut").textContent = Math.round(drive.amp * 100) + "%";
+    }, 100);
+  }
+
+  function closeLab() {
+    lab.open = false;
+    lab.sweeping = false;
+    state.labRunning = false;
+    state.tuning = false;
+    clearInterval(lab.timer);
+    drive.stop();
+    stopSensors();
+    $("labRun").textContent = "Start drive";
+    showScreen("setup");
+  }
+
+  async function labToggleDrive() {
+    if (drive.running) {
+      drive.stop();
+      $("labRun").textContent = "Start drive";
+      return;
+    }
+    try {
+      await drive.start(audio.ctx);
+    } catch (err) {
+      setupError(err && err.message ? err.message : String(err));
+      return;
+    }
+    labApply();
+    drive.setAmp(parseInt($("labAmp").value, 10) / 100);
+    $("labRun").textContent = "Stop drive";
+  }
+
+  async function labSweep() {
+    if (lab.sweeping) return;
+    lab.sweeping = true;
+    lab.peak = 0;
+    $("labSweep").disabled = true;
+    $("labVerdict").classList.remove("show");
+    $("labResults").innerHTML = "";
+    try {
+      if (!drive.running) await drive.start(audio.ctx);
+      $("labRun").textContent = "Stop drive";
+      await autoTune((results) => renderLabResults(results));
+      const results = state.tuneResults || [];
+      renderLabResults(results);
+      labVerdict(state.tuneBest || 0, drive.params);
+      // Reflect whatever won back into the controls.
+      $("labCarrier").value = String(Math.round(drive.params.carrier));
+      $("labStroke").value = String(drive.params.stroke);
+      labSyncLabels();
+      for (const b of $("labModeSeg").querySelectorAll(".opt")) {
+        b.setAttribute("aria-pressed", String(b.dataset.mode === drive.params.mode));
+      }
+    } catch (e) {
+      /* leave the verdict off rather than claiming a result we do not have */
+    }
+    drive.setAmp(0);
+    lab.sweeping = false;
+    $("labSweep").disabled = false;
+  }
+
+  function renderLabResults(results) {
+    const sorted = results.slice().sort((a, b) => b.score - a.score).slice(0, 6);
+    let html = "";
+    for (let i = 0; i < sorted.length; i++) {
+      const r = sorted[i];
+      html += '<div class="lrow' + (i === 0 && r.score > 0.4 ? " top" : "") + '"><span>' +
+        r.label + ": " + r.value + (r.unit ? " " + r.unit : "") + "</span><b>" +
+        r.score.toFixed(1) + "°/s</b></div>";
+    }
+    $("labResults").innerHTML = html;
+  }
+
+  /* =====================================================================
    *  9. Buttons
    * ===================================================================== */
 
@@ -1640,6 +1915,13 @@
   $("abortBtn").addEventListener("click", () => { teardown(); clearShots(); showScreen("setup"); });
   $("zipBtn").addEventListener("click", downloadZip);
   $("tuneSkip").addEventListener("click", () => { state.tuning = false; });
+  $("labBtn").addEventListener("click", openLab);
+  $("labBack").addEventListener("click", closeLab);
+  $("labRun").addEventListener("click", labToggleDrive);
+  $("labSweep").addEventListener("click", labSweep);
+  for (const id of ["labCarrier", "labStroke", "labAmp"]) $(id).addEventListener("input", labApply);
+  bindSegment($("labModeSeg"), "mode", (v) => drive.setParams({ mode: v }));
+  bindSegment($("labShapeSeg"), "duty", (v) => drive.setParams({ duty: parseFloat(v) }));
   $("againBtn").addEventListener("click", () => { clearShots(); start(); });
   $("backBtn").addEventListener("click", () => { clearShots(); showScreen("setup"); });
 
@@ -1656,8 +1938,9 @@
   window.__gyro = {
     core: {
       angleDelta, norm360, orientationAxes, headingFromOrientation, RotationTracker, ShotPlan,
-      maxGapError, crc32, makeZip, strokeWave, waveStats, VibeDrive, SpinController
+      maxGapError, crc32, makeZip, strokeWave, channelWaves, waveStats, VibeDrive, SpinController
     },
+    lab: lab,
     settings: settings,
     state: state,
     ui: ui,
@@ -1670,6 +1953,9 @@
         carrier: drive.effectiveCarrier,
         duty: drive.params.duty,
         stroke: drive.params.stroke,
+        mode: drive.params.mode,
+        shape: drive.params.shape,
+        tuneBest: state.tuneBest,
         rms: drive.rms(),
         ctx: drive.ctx ? drive.ctx.state : null,
         controller: state.controller ? state.controller.state : null,
