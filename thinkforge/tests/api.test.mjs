@@ -10,7 +10,7 @@ process.env.THINKFORGE_DB = dbFile;
 process.env.PORT = String(4300 + (process.pid % 500));
 delete process.env.ANTHROPIC_API_KEY;      // exercise the offline path deliberately
 
-const { start, server } = await import('../server/index.mjs');
+const { start, server, close } = await import('../server/index.mjs');
 await start();
 const base = `http://127.0.0.1:${process.env.PORT}`;
 
@@ -18,7 +18,7 @@ const get = async (p) => (await fetch(base + p)).json();
 const post = async (p, body) => (await fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })).json();
 
 test.after(() => {
-  server.close();
+  close();
   for (const suffix of ['', '-wal', '-shm']) fs.rmSync(dbFile + suffix, { force: true });
 });
 

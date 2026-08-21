@@ -4,8 +4,9 @@ THINKFORGE
 EXTRACT THIS ARCHIVE FIRST. Do not run anything from inside the zip:
 Windows unpacks only the file you double-click, and nothing else will be there.
 
-  Windows      Right-click the .zip -> "Extract All..." -> open the extracted
-               thinkforge-1.0.0 folder -> double-click  start.cmd
+  Windows      Right-click the .zip -> "Extract All..." -> open the folder that
+               appears -> if there is another thinkforge folder inside it, open
+               that one too -> double-click  start.cmd
 
   macOS/Linux  Unpack it, open a terminal in the folder, run  ./start.sh
 

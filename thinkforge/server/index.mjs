@@ -36,7 +36,7 @@ const HOST = process.env.HOST || '127.0.0.1';
 
 const allow = rateLimiter({ windowMs: 60000, max: 300 });
 
-const server = http.createServer(async (req, res) => {
+const handler = async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const ip = req.socket.remoteAddress || 'local';
 
@@ -46,20 +46,66 @@ const server = http.createServer(async (req, res) => {
   }
   if (req.method !== 'GET') return send(res, 405, 'method not allowed');
   return serveStatic(CLIENT_ROOT, url.pathname, res);
-});
+};
+
+const server = http.createServer(handler);
+
+/**
+ * Windows resolves `localhost` to ::1 before 127.0.0.1, so a server bound only
+ * to IPv4 loopback can be unreachable in a browser that does not fall back —
+ * "the page won't open" with the server apparently running. A second listener
+ * on IPv6 loopback fixes that without putting anything on the network, which
+ * is why this is two loopback binds rather than one wildcard bind.
+ */
+const secondary = HOST === '127.0.0.1' ? http.createServer(handler) : null;
+
+function listen(srv, host) {
+  return new Promise((resolve) => {
+    srv.once('error', () => resolve(false));   // machine has no IPv6: fine
+    srv.listen(PORT, host, () => resolve(true));
+  });
+}
 
 export async function start() {
   getDb();
   const ai = await aiStatus();
-  await new Promise((resolve) => server.listen(PORT, HOST, resolve));
-  const mode = ai.available ? `AI marking + tutoring on (${ai.model})` : `offline mode (${ai.reason}) — deterministic marking and the authored hint ladder`;
-  console.log(`Thinkforge listening on http://localhost:${PORT}  ·  ${mode}`);
+  const bound = await listen(server, HOST);
+  if (!bound) throw new Error(`Port ${PORT} is already in use. Start with PORT=4174 (or any free port).`);
+  if (secondary) await listen(secondary, '::1');
+
+  const mode = ai.available
+    ? `AI marking + tutoring on (${ai.model})`
+    : `offline mode (${ai.reason}) - deterministic marking and the authored hint ladder`;
+  console.log('');
+  console.log(`  Thinkforge is running - ${mode}`);
+  console.log('');
+  console.log(`  Open this in your browser:   http://localhost:${PORT}`);
+  console.log(`  If that does not open, try:  http://127.0.0.1:${PORT}`);
+  console.log('');
+  console.log('  Leave this window open. Press Ctrl+C here to stop it.');
+  console.log('');
   if (HOST !== '127.0.0.1' && HOST !== 'localhost') {
-    console.log(`Reachable from the network on ${HOST}:${PORT} — it holds student work, so keep it to a trusted network.`);
+    console.log(`  Reachable from the network on ${HOST}:${PORT} - it holds student work, so keep it to a trusted network.`);
+    console.log('');
   }
   return server;
 }
 
+/** Close every listener this process opened. */
+export function close() {
+  server.close();
+  if (secondary) secondary.close();
+}
+
 export { server };
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) start();
+if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+  start().catch((err) => {
+    // A failure to start is an operational problem for whoever is standing at
+    // the machine, not a bug report: say the one useful sentence and stop.
+    console.error('');
+    console.error(`  Thinkforge could not start: ${err.message}`);
+    console.error('');
+    process.exit(1);
+  });
+}

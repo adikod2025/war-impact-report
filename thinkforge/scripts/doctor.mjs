@@ -61,8 +61,21 @@ const portFree = await new Promise((resolve) => {
   srv.once('listening', () => srv.close(() => resolve(true)));
   srv.listen(port, '127.0.0.1');
 });
-add(portFree, `Port ${port}`, portFree ? 'free' : 'already in use',
-  portFree ? null : `Something else is on ${port}. Start with PORT=4174 (or any free port).`);
+if (portFree) {
+  add(true, `Port ${port}`, 'free');
+} else {
+  // Occupied by Thinkforge itself is the common case — somebody started it
+  // twice — and it deserves a different sentence from a genuine clash.
+  let mine = false;
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/status`, { signal: AbortSignal.timeout(1500) });
+    mine = res.ok && !!(await res.json()).strands;
+  } catch { mine = false; }
+  add(mine, `Port ${port}`, mine
+    ? `Thinkforge is already running here — just open http://localhost:${port}`
+    : 'in use by something else',
+  mine ? null : `Start on another port instead:  PORT=4174 npm start`);
+}
 
 /* The curriculum loads and is intact. */
 try {

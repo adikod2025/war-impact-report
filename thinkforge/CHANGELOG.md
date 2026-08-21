@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0.3 — reachable in the browser, on Windows too
+
+- **Fixes "the page will not open".** Windows resolves `localhost` to `::1`
+  before `127.0.0.1`, so binding IPv4 loopback alone could leave the app
+  unreachable in a browser that does not fall back. It now listens on both
+  loopback addresses — still nothing on the network.
+- The startup message now prints the URL to open, a fallback URL, and how to
+  stop it, instead of one dense line.
+- A port already in use prints one sentence rather than a Node stack trace, and
+  preflight recognises when the port is Thinkforge itself already running and
+  says to just open the browser.
+
+## 1.0.2 — launchers find the app themselves
+
+- "Extract All" on Windows makes a wrapper folder named after the zip, leaving
+  the real folder one level down. Both launchers now look one level in, say so,
+  and start from there instead of failing.
+- The failure message now covers both real causes — run from inside the zip, or
+  run one folder above the app — and names the folder to look for.
+
 ## 1.0.1 — launcher fixes
 
 - Running `start.cmd` from *inside* the zip (Windows extracts only the file you

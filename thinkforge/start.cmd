@@ -3,13 +3,28 @@ rem Thinkforge launcher for Windows.  Extract the zip first, then run this.
 setlocal
 cd /d "%~dp0"
 
-rem --- Are we running from inside the zip? Explorer extracts only the file you
-rem --- double-click into a temp folder, so its siblings are missing.
-if not exist "server\index.mjs" goto :notextracted
-if not exist "scripts\doctor.mjs" goto :notextracted
-
-where node >nul 2>nul
-if errorlevel 1 goto :nonode
+rem --- Find the app. Two things go wrong on Windows: running this from inside
+rem --- the zip (Explorer unpacks only the file you double-click), and "Extract
+rem --- All" making a wrapper folder named after the zip, leaving the real
+rem --- folder one level down. The second case we can just fix ourselves.
+if exist "server\index.mjs" goto :haveapp
+for /d %%d in (*) do if exist "%%d\server\index.mjs" set "APPDIR=%%d"
+if not defined APPDIR goto :notextracted
+echo.
+echo   Thinkforge is not in this folder, and not in any folder inside it.
+echo   Current folder:
+echo     %CD%
+echo.
+echo   Two things usually cause this:
+echo.
+echo   1. You started this from inside the .zip. Windows only unpacks the file
+echo      you double-click. Right-click the zip, choose "Extract All...", then
+echo      run start.cmd from the folder that appears.
+echo.
+echo   2. You are one folder above the app. Look for a folder called
+echo      thinkforge-1.0.2 and run start.cmd inside that one.
+echo.
+:nonode
 
 node -e "var v=process.versions.node.split('.').map(Number); process.exit(v[0]>22||v[0]===22&&v[1]>=5?0:1)" >nul 2>nul
 if errorlevel 1 goto :oldnode

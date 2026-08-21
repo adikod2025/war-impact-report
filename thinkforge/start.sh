@@ -3,14 +3,27 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# Are we running from inside the archive, or from a folder missing its files?
+# Find the app. Unpacking sometimes leaves a wrapper folder with the real one
+# inside it, which we can simply step into.
+if [ ! -f server/index.mjs ]; then
+  for candidate in */; do
+    if [ -f "${candidate}server/index.mjs" ]; then
+      echo "Found Thinkforge in ${candidate%/} - starting it from there."
+      cd "$candidate"
+      break
+    fi
+  done
+fi
+
 if [ ! -f server/index.mjs ] || [ ! -f scripts/doctor.mjs ]; then
   echo
-  echo "  This does not look like a complete Thinkforge folder."
+  echo "  Thinkforge is not in this folder, and not in any folder inside it."
   echo "  Current folder: $(pwd)"
   echo
   echo "  If you started this from inside the .zip or .tar.gz, extract the archive"
   echo "  first, then run ./start.sh from the extracted thinkforge folder."
+  echo "  If you unpacked it already, look for the thinkforge-<version> folder"
+  echo "  and run ./start.sh inside that one."
   echo
   exit 1
 fi
