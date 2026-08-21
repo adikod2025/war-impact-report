@@ -10,6 +10,8 @@
  */
 import { wordCount, extractFeatures } from './text.mjs';
 
+export const OFFLINE_CEILING = 2.5;
+
 const band = (value, stops) => {
   // stops = [s1, s2, s3]; returns 0..3 with linear interpolation inside a band
   const [s1, s2, s3] = stops;
@@ -119,7 +121,10 @@ export function scoreRubricOffline(task, response, features) {
       ? { features, field: null }
       : scopedFeatures(crit, task, response, features);
     const raw = scoreCriterionOffline(crit, { task, response, features: scope.features });
-    const score = Math.max(0, Math.min(3, Math.round(raw * 10) / 10));
+    // The top anchor always asks for a judgement the heuristics cannot make
+    // (is the warrant *really* general? is the exception *really* a threat?).
+    // Offline marking is therefore capped below 3 rather than claiming it.
+    const score = Math.max(0, Math.min(OFFLINE_CEILING, Math.round(raw * 10) / 10));
     return {
       id: crit.id,
       name: crit.name,

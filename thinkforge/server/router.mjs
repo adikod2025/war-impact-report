@@ -70,6 +70,15 @@ route('POST', /^\/api\/attempts$/, async (req, res) => {
   return send(res, result.valid === false ? 200 : 201, result);
 });
 
+/** Run one test on a black-box machine. The rule never leaves the server. */
+route('POST', /^\/api\/attempts\/probe-run$/, async (req, res) => {
+  const { taskId, inputs } = await readJson(req);
+  const task = getTask(taskId);
+  if (!task || task.mode !== 'probe') return send(res, 404, { error: 'not_found' });
+  const { runMachine } = await import('./engine/probe.mjs');
+  return send(res, 200, runMachine(task.payload.machine, inputs || {}));
+});
+
 route('POST', /^\/api\/tutor$/, async (req, res) => {
   const body = await readJson(req);
   const turn = await svc.tutor(body);
