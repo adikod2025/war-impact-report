@@ -19,7 +19,9 @@ const NON_NEGOTIABLES = `NON-NEGOTIABLE RULES
 3. Address the task first, then the process (the strategy they used), then self-regulation (what they could check themselves next time). Those three levels only.
 4. You are talking to a child aged 9-15. No personal questions, no requests for personal information, no discussion outside the task.
 5. If the student's message suggests they are unsafe or distressed, do not counsel them: tell them to speak to a trusted adult now.
-6. Be brief. Long replies are read as "I have already been given the answer".`;
+6. Be brief. Long replies are read as "I have already been given the answer".
+7.
+PLAIN ASCII ONLY. Use a hyphen where you would use a dash, straight quotes, and no accented or special characters. Non-ASCII characters get mangled on the way out of a JSON field and reach the student as broken words.`;
 
 export function scorerSystem() {
   return `You are a careful assessor of children's thinking, working inside a school platform.
@@ -38,7 +40,9 @@ You also write the student's feedback, at three levels and nowhere else:
 - task: what this response did and did not do, concretely.
 - process: the strategy behind it, and the one move that would change it most.
 - selfRegulation: one check the student could run on their own work next time.
-Never reveal a model answer in the feedback. Point at the gap, do not fill it.`;
+Never reveal a model answer in the feedback. Point at the gap, do not fill it.
+
+PLAIN ASCII ONLY. Use a hyphen where you would use a dash, straight quotes, and no accented or special characters. Non-ASCII characters get mangled on the way out of a JSON field and reach the student as broken words.`;
 }
 
 export function scorerUser({ task, response, features, text }) {
@@ -100,13 +104,15 @@ export const SCORER_SCHEMA = {
         required: ['id', 'score', 'evidence', 'rationale'],
         properties: {
           id: { type: 'string' },
-          score: { type: 'integer', minimum: 0, maximum: 3 },
+          // Bounded integers are expressed as enums: the structured-output
+          // schema rejects `minimum`/`maximum` on an integer type.
+          score: { type: 'integer', enum: [0, 1, 2, 3] },
           evidence: { type: ['string', 'null'], description: 'Verbatim quote from the response, or null if the score is 0.' },
           rationale: { type: 'string', description: 'One sentence, under 25 words, referring to the anchor.' },
         },
       },
     },
-    soloLevel: { type: 'integer', minimum: 0, maximum: 5 },
+    soloLevel: { type: 'integer', enum: [0, 1, 2, 3, 4, 5] },
     offTask: { type: 'boolean' },
     feedback: {
       type: 'object',
@@ -181,7 +187,7 @@ export const TUTOR_SCHEMA = {
       enum: ['purpose', 'question', 'information', 'interpretation', 'concepts', 'assumptions', 'implications', 'point_of_view'],
       description: 'The Paul-Elder element you decided was weakest.',
     },
-    rung: { type: 'integer', minimum: 0, maximum: 3 },
+    rung: { type: 'integer', enum: [0, 1, 2, 3] },
     studentAttempted: { type: 'boolean', description: 'Did the student make a genuine attempt in their last message?' },
   },
 };
@@ -195,7 +201,9 @@ RULES
 - Name the specific thinking move that produced it.
 - Never praise the person ("you are a great thinker"). Praise nothing; describe what changed.
 - One next step, concrete, doable in one session.
-- Under 90 words total.`;
+- Under 90 words total.
+
+PLAIN ASCII ONLY. Use a hyphen where you would use a dash, straight quotes, and no accented or special characters. Non-ASCII characters get mangled on the way out of a JSON field and reach the student as broken words.`;
 }
 
 export const NARRATIVE_SCHEMA = {

@@ -2,13 +2,13 @@
  * The growth story (docs/03 §D.2): generated from the deltas plus the
  * student's own quoted work, or a deterministic template when offline.
  */
-import { call } from './client.mjs';
+import { call, recordFailure } from './client.mjs';
 import { narrativeSystem, NARRATIVE_SCHEMA } from './prompts.mjs';
 import { templateNarrative } from '../engine/growth.mjs';
-import { redactPII } from './safety.mjs';
+import { redactPII, anyCorrupted, repairDeep } from './safety.mjs';
 import { STRANDS } from '../content/frameworks.mjs';
 
-export async function growthStory({ current, previous, portfolio = [], age = 12 }) {
+export async function growthStory({ current, previous, portfolio = [], age = 12, caller = call }) {
   const template = templateNarrative(current, previous);
   if (!previous) return template;
 
@@ -27,7 +27,7 @@ export async function growthStory({ current, previous, portfolio = [], age = 12 
 
   let result;
   try {
-    result = await call({
+    result = await caller({
       system: narrativeSystem(),
       messages: [{
         role: 'user',
@@ -37,9 +37,15 @@ export async function growthStory({ current, previous, portfolio = [], age = 12 
       effort: 'low',
       maxTokens: 600,
     });
-  } catch {
+  } catch (err) {
+    recordFailure('growth narrative', err);
     return template;
   }
   if (!result.ok || !result.json) return template;
-  return { ...result.json, source: 'ai', model: result.model };
+  const repaired = repairDeep(result.json);
+  if (anyCorrupted(repaired)) {
+    recordFailure('growth narrative', new Error('generated prose was corrupted beyond repair; used the template instead'));
+    return template;
+  }
+  return { ...repaired, source: 'ai', model: result.model };
 }

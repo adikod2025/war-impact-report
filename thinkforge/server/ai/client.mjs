@@ -14,6 +14,30 @@ let sdkPromise = null;
 let client = null;
 let unavailableReason = null;
 
+/**
+ * The last failure, kept so a silent degradation cannot hide. Every AI feature
+ * falls back to a deterministic path, which is good for availability and
+ * dangerous for observability: a malformed request would otherwise look exactly
+ * like "no key configured" forever.
+ */
+let lastFailure = null;
+
+export function recordFailure(where, err) {
+  lastFailure = {
+    where,
+    at: new Date().toISOString(),
+    status: err?.status ?? null,
+    requestId: err?.request_id ?? err?.requestID ?? null,
+    message: String(err?.message || err).slice(0, 400),
+  };
+  console.error(`[thinkforge:ai] ${where} failed — falling back to the deterministic path`, lastFailure);
+  return lastFailure;
+}
+
+export function lastAiFailure() {
+  return lastFailure;
+}
+
 export function hasApiKey() {
   return !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
 }
@@ -41,6 +65,10 @@ export async function aiStatus() {
     available: !!c,
     reason: c ? null : unavailableReason || 'unknown',
     model: c ? MODEL : null,
+    // Configured but failing is a third state, and it must be visible: without
+    // it, a broken request shape degrades every student silently.
+    degraded: !!(c && lastFailure),
+    lastFailure,
   };
 }
 
@@ -92,8 +120,9 @@ export async function call({ system, messages, schema = null, effort = 'medium',
       ? await c.beta.messages.create({ ...body, betas: [FALLBACK_BETA], fallbacks: 'default' })
       : await c.messages.create(body);
   } catch (err) {
-    if (useBeta) {
-      // The refusal-fallback beta is Claude API only; retry plainly elsewhere.
+    // A 400 is a bug in what we sent, not a transport problem: retrying the
+    // same body without the beta wrapper would just fail again and hide it.
+    if (useBeta && err?.status !== 400) {
       message = await c.messages.create(body);
     } else {
       throw err;

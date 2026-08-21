@@ -8,6 +8,12 @@
  *   node scripts/seed.mjs            # add the demo class
  *   THINKFORGE_DB=./data/demo.db node scripts/seed.mjs
  */
+// The demo class is seeded deterministically on purpose: with a key present
+// this would fire a live marking call per mission and quietly spend real money
+// producing data nobody reads. Run the server with the key instead.
+delete process.env.ANTHROPIC_API_KEY;
+delete process.env.ANTHROPIC_AUTH_TOKEN;
+
 import * as db from '../server/db.mjs';
 import { submitAttempt, takeSnapshot, planSession } from '../server/service.mjs';
 import { getTask, TASKS } from '../server/content/index.mjs';

@@ -231,6 +231,32 @@ emerging AI-chatbot disclosure statutes discussed in the research doc §5.
 
 ---
 
+## Part B.5 — Model behaviour observed in production
+
+Three findings from validating against the live API, each now covered by a
+regression test:
+
+1. **The structured-output schema rejects `minimum`/`maximum` on an integer.**
+   A rubric score bounded that way returns HTTP 400. Bounded integers are
+   expressed as `enum` instead.
+2. **A failing AI call is invisible by default.** Every AI feature here falls
+   back to a deterministic path, which is excellent for availability and
+   dangerous for observability — a malformed request degrades every student
+   silently and looks identical to "no key configured". The client now records
+   the last failure, logs it, and `/api/status` reports a third state:
+   `degraded` (configured but failing).
+3. **Non-ASCII punctuation inside a schema-constrained JSON string gets
+   mangled.** An em dash came back as a literal `\u2014`, a stray backslash, or
+   lost characters ("no homework edo each") in roughly half of tutor turns —
+   confirmed to be generation-side, since the same text survives the SDK, the
+   schema and raw HTTPS intact when echoed back. Three layers now handle it:
+   the prompts ask for plain ASCII (which removes the trigger — measured 0 of 8
+   damaged afterwards), unambiguous artefacts are repaired, and anything still
+   corrupt is dropped in favour of the deterministic text rather than shown to
+   a child.
+
+---
+
 ## Part D — Evolution tracking
 
 Growth is not "points". Six indices, each defined so that it can *only* move for

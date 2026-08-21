@@ -93,3 +93,53 @@ export function leaksAnswer(tutorText, answerKey) {
 }
 
 export const AI_DISCLOSURE = 'I am an AI coach, not a person.';
+
+/**
+ * Generation-artefact detector for student-facing prose.
+ *
+ * Observed live: a narrative came back reading "a warrant \ning the evidence"
+ * and "81 \are are how you actually are" — the model's own text was mangled,
+ * not our parsing. Nothing downstream would have caught it, and a child would
+ * have been shown it. Anything that trips this falls back to the deterministic
+ * text, which is always available.
+ */
+export function looksCorrupted(text) {
+  const t = String(text || '');
+  if (!t.trim()) return true;
+  if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFD]/.test(t)) return true;   // control chars, replacement char
+  if (/\\[a-z]/i.test(t)) return true;                                         // stray escape sequences in prose
+  if (/\n\s*[a-z]{1,3}\b/.test(t) && !/\n\s*(a|I|an|as|at|be|by|do|go|if|in|is|it|no|of|on|or|so|to|up|we)\b/.test(t)) return true;
+  if (/(\b\w+\b)(\s+\1){3,}/i.test(t)) return true;                              // a word stuck on repeat
+  return false;
+}
+
+/**
+ * Repair the two artefacts observed live in structured output: an escape
+ * sequence emitted literally (`\u2014` instead of an em dash) and a stray
+ * backslash before a word. Both are unambiguous and recoverable — roughly half
+ * of tutor turns carried one, so discarding them would throw away good
+ * coaching. Anything still corrupt after this is dropped, not shipped.
+ */
+export function repairProse(text) {
+  return String(text ?? '')
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\(?=[a-zA-Z])/g, '');
+}
+
+/** Repair every string in an object graph. */
+export function repairDeep(value) {
+  if (typeof value === 'string') return repairProse(value);
+  if (Array.isArray(value)) return value.map(repairDeep);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, repairDeep(v)]));
+  }
+  return value;
+}
+
+/** Every string in an object graph, checked. */
+export function anyCorrupted(value) {
+  if (typeof value === 'string') return looksCorrupted(value);
+  if (Array.isArray(value)) return value.some(anyCorrupted);
+  if (value && typeof value === 'object') return Object.values(value).some(anyCorrupted);
+  return false;
+}

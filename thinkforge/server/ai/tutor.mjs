@@ -6,9 +6,9 @@
  * API key it serves the task's authored hint ladder instead, and the transcript
  * is marked `scripted` so nobody mistakes it for a dialogue.
  */
-import { call } from './client.mjs';
+import { call, recordFailure } from './client.mjs';
 import { tutorSystem, tutorUser, TUTOR_SCHEMA } from './prompts.mjs';
-import { screenStudentText, isAnswerExtraction, leaksAnswer, AI_DISCLOSURE } from './safety.mjs';
+import { screenStudentText, isAnswerExtraction, leaksAnswer, looksCorrupted, repairProse, AI_DISCLOSURE } from './safety.mjs';
 
 export const MAX_TURNS = 6;
 
@@ -81,22 +81,32 @@ export async function tutorTurn({ task, text, scoreSummary, history = [], studen
       effort: 'low',
       maxTokens: 800,
     });
-  } catch {
+  } catch (err) {
+    recordFailure('tutor turn', err);
     return fallback();
   }
-  if (!result.ok || !result.json?.reply) return fallback();
+  if (!result.ok || !result.json?.reply) {
+    recordFailure('tutor turn', new Error(`tutor returned ${result.reason || 'no reply'}`));
+    return fallback();
+  }
+
+  const reply = repairProse(result.json.reply);
+  if (looksCorrupted(reply)) {
+    recordFailure('tutor turn', new Error('generated reply was corrupted beyond repair; used the authored ladder instead'));
+    return { ...fallback(), corruptionBlocked: true };
+  }
 
   const answerKey = task.payload?.answerKey || task.rubric?.solo?.[3] || '';
-  if (leaksAnswer(result.json.reply, answerKey)) {
+  if (leaksAnswer(reply, answerKey)) {
     // Do not ship a turn that gives the game away; drop back to the authored
     // ladder, which is known safe.
     return { ...fallback(), leakageBlocked: true };
   }
 
   return {
-    reply: result.json.reply,
+    reply,
     element: result.json.element,
-    rung: result.json.rung ?? rung,
+    rung: Math.max(0, Math.min(3, result.json.rung ?? rung)),
     mode: 'ai',
     model: result.model,
     promptHash: result.promptHash,
