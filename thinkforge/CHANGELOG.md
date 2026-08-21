@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.1 — launcher fixes
+
+- Running `start.cmd` from *inside* the zip (Windows extracts only the file you
+  double-click) produced a raw Node stack trace. Both launchers now check that
+  the app is actually there and explain how to extract it instead.
+- `start.cmd` rewritten with label-based flow: the Node version test no longer
+  depends on `for /f` quoting, the demo-class prompt no longer misreads its own
+  answer through delayed expansion, and every failure path prints a plain
+  sentence and pauses rather than dumping an error.
+- Added `README-FIRST.txt` at the archive root, and an INSTALL.md entry for the
+  exact "Cannot find module ...\scripts\doctor.mjs" error.
+- Both launchers now print the URL to open and how to stop the server.
+
 ## 1.0.0 — first release
 
 A thinking-skills platform for 9-15 year-olds: named thinking moves, authentic

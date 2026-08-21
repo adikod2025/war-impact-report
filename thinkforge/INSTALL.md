@@ -19,8 +19,17 @@ You should see `v22.5.0` or higher.
 
 ## 2. Unpack Thinkforge
 
-Unzip the release archive anywhere you like — a Documents folder is fine.
-You will end up with a folder called `thinkforge`.
+**Extract the archive before running anything.** On Windows, double-clicking a
+file *inside* a zip makes Explorer copy only that one file to a temp folder, so
+the app cannot find the rest of itself and Node reports
+`Cannot find module ...\\scripts\\doctor.mjs`.
+
+- **Windows** — right-click the `.zip` → **Extract All…** → open the extracted
+  `thinkforge-1.0.0` folder.
+- **macOS / Linux** — `tar -xzf thinkforge-1.0.0.tar.gz` (or double-click), then
+  open the `thinkforge-1.0.0` folder.
+
+Anywhere is fine — Documents, Desktop, a USB stick.
 
 ## 3. Start it
 
@@ -80,6 +89,7 @@ and whether AI is configured — and tells you what to do about each one.
 
 | Symptom | Fix |
 |---|---|
+| `Cannot find module ...\scripts\doctor.mjs`, path contains `AppData\Local\Temp` | You ran `start.cmd` from inside the zip. Extract the archive first (step 2), then run it from the extracted folder. |
 | `node: command not found` | Node.js is not installed — step 1. |
 | "needs Node v22.5 or newer" | Your Node is too old; install the current LTS. |
 | "Port 4173 already in use" | Start on another port: `PORT=4174 ./start.sh` |

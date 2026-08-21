@@ -1,6 +1,6 @@
 {
   "name": "thinkforge",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "A web platform that teaches thinking skills to 9-15 year-olds, with AI scoring, tutoring and evolution tracking.",

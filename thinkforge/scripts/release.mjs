@@ -23,7 +23,7 @@ const stage = path.join(dist, name);
 
 /** Everything a running install needs, and nothing else. */
 const INCLUDE_DIRS = ['server', 'client', 'docs', 'scripts'];
-const INCLUDE_FILES = ['README.md', 'INSTALL.md', 'CHANGELOG.md', 'LICENSE', '.env.example', 'start.sh', 'start.cmd'];
+const INCLUDE_FILES = ['README-FIRST.txt', 'README.md', 'INSTALL.md', 'CHANGELOG.md', 'LICENSE', '.env.example', 'start.sh', 'start.cmd'];
 const RUNTIME_DEPS = ['@anthropic-ai', 'json-schema-to-ts', 'ts-algebra', '@babel'];
 const EXCLUDE_FROM_SCRIPTS = ['release.mjs', 'ui-smoke.mjs'];
 
@@ -78,6 +78,11 @@ const releasePkg = {
 fs.writeFileSync(path.join(stage, 'package.json'), `${JSON.stringify(releasePkg, null, 2)}\n`);
 
 fs.writeFileSync(path.join(stage, 'VERSION'), `${pkg.version}\n`);
+// Stamp the version into the first thing a Windows user opens.
+const firstRead = path.join(stage, 'README-FIRST.txt');
+if (fs.existsSync(firstRead)) {
+  fs.writeFileSync(firstRead, fs.readFileSync(firstRead, 'utf8').replace(/^THINKFORGE\n=+/, `THINKFORGE ${pkg.version}\n${'='.repeat(11 + pkg.version.length)}`));
+}
 fs.mkdirSync(path.join(stage, 'data'), { recursive: true });
 fs.writeFileSync(path.join(stage, 'data', '.gitkeep'), '');
 fs.chmodSync(path.join(stage, 'start.sh'), 0o755);
