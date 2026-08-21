@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.4 — the server starts on Windows
+
+- **Fixes the server exiting instantly with no output on Windows.** The check
+  for "was this file run directly" compared `file://` + `process.argv[1]`
+  against `import.meta.url`. On Windows those are `file://C:\path\index.mjs`
+  and `file:///C:/path/index.mjs` — never equal — so the server was never
+  started by `npm start`, by `node server/index.mjs`, or by `start.cmd`. It now
+  compares resolved paths.
+- Added a test that runs the server as a command and waits for it to answer on
+  its port. Every previous test imported the module instead, which is why this
+  shipped: the bug was in the one line no test executed.
+- Preflight no longer prints the start command and the URL on one line, because
+  it was being pasted into the shell as a single command.
+
 ## 1.0.3 — reachable in the browser, on Windows too
 
 - **Fixes "the page will not open".** Windows resolves `localhost` to `::1`

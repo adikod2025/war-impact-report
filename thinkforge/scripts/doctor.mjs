@@ -105,9 +105,15 @@ for (const c of checks) {
   if (c.ok && c.fix) console.log(`     ${' '.repeat(pad)}  · ${c.fix}`);
 }
 const failed = checks.filter((c) => !c.ok);
-console.log(failed.length
-  ? `\n${failed.length} problem${failed.length === 1 ? '' : 's'} to fix before starting.\n`
-  : `\nAll good. Start it with:  npm start   →  http://localhost:${port}\n`);
+if (failed.length) {
+  console.log(`\n${failed.length} problem${failed.length === 1 ? '' : 's'} to fix before starting.\n`);
+} else {
+  // Two separate lines on purpose: as one line people paste the URL into the
+  // shell along with the command.
+  console.log('\nAll good. Start it with this command:\n');
+  console.log('    npm start\n');
+  console.log(`Then open this in a browser:  http://localhost:${port}\n`);
+}
 
 if (needsFlag) console.log('Note: this Node version needs --experimental-sqlite; ./start.sh and start.cmd add it automatically.\n');
 process.exit(failed.length ? 1 : 0);

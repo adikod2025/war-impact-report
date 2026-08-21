@@ -3,7 +3,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { serveStatic, send, rateLimiter } from './http.mjs';
 import { handleApi } from './router.mjs';
 import { getDb } from './db.mjs';
@@ -99,7 +99,24 @@ export function close() {
 
 export { server };
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+/**
+ * Was this file run directly, rather than imported?
+ *
+ * The obvious `import.meta.url === \`file://${process.argv[1]}\`` is wrong on
+ * Windows: argv[1] is `C:\\path\\index.mjs` while import.meta.url is
+ * `file:///C:/path/index.mjs`, so they never match, start() is never called,
+ * and the server exits instantly with no output. Compare resolved paths.
+ */
+export function isEntryPoint(argv1, metaUrl) {
+  if (!argv1) return false;
+  try {
+    return path.resolve(fileURLToPath(metaUrl)) === path.resolve(argv1);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntryPoint(process.argv[1], import.meta.url)) {
   start().catch((err) => {
     // A failure to start is an operational problem for whoever is standing at
     // the machine, not a bug report: say the one useful sentence and stop.
