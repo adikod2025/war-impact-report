@@ -81,6 +81,40 @@ function migrate(d) {
       kind TEXT NOT NULL, level TEXT, detail TEXT, attempt_id TEXT,
       resolved INTEGER DEFAULT 0, created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS game_state (
+      student_id TEXT PRIMARY KEY REFERENCES students(id) ON DELETE CASCADE,
+      xp INTEGER NOT NULL DEFAULT 0, sparks INTEGER NOT NULL DEFAULT 0,
+      streak INTEGER NOT NULL DEFAULT 0, longest INTEGER NOT NULL DEFAULT 0,
+      freezes INTEGER NOT NULL DEFAULT 2, last_active_day TEXT,
+      mark TEXT, leaderboard_opt_in INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS rewards (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      attempt_id TEXT, source TEXT NOT NULL, xp INTEGER NOT NULL, sparks INTEGER NOT NULL,
+      lines TEXT, created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS rewards_student ON rewards(student_id, created_at);
+    CREATE TABLE IF NOT EXISTS unlocks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL, key TEXT NOT NULL, meta TEXT, created_at TEXT NOT NULL,
+      UNIQUE (student_id, kind, key)
+    );
+    CREATE TABLE IF NOT EXISTS quests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      period TEXT NOT NULL, period_key TEXT NOT NULL, quest_key TEXT NOT NULL,
+      goal INTEGER NOT NULL, xp INTEGER NOT NULL, rerolls INTEGER NOT NULL DEFAULT 0,
+      claimed INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL,
+      UNIQUE (student_id, period, period_key, quest_key)
+    );
+    CREATE TABLE IF NOT EXISTS duels (
+      id TEXT PRIMARY KEY,
+      student_id TEXT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      task_id TEXT NOT NULL, peer_attempt_id TEXT, peer_student_id TEXT,
+      score REAL, response TEXT, criteria TEXT, created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS overrides (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       attempt_id TEXT NOT NULL, guardian_id TEXT, score REAL NOT NULL,
@@ -265,6 +299,127 @@ export function resolveFlag(id) {
   getDb().prepare('UPDATE flags SET resolved = 1 WHERE id = ?').run(id);
 }
 
+/* ---------- the game layer ---------- */
+
+export function getGameState(studentId) {
+  const d = getDb();
+  let row = d.prepare('SELECT * FROM game_state WHERE student_id = ?').get(studentId);
+  if (!row) {
+    d.prepare('INSERT INTO game_state (student_id) VALUES (?)').run(studentId);
+    row = d.prepare('SELECT * FROM game_state WHERE student_id = ?').get(studentId);
+  }
+  return {
+    studentId: row.student_id, xp: row.xp, sparks: row.sparks, streak: row.streak,
+    longest: row.longest, freezes: row.freezes, lastActiveDay: row.last_active_day,
+    mark: row.mark, leaderboardOptIn: !!row.leaderboard_opt_in,
+  };
+}
+
+export function saveGameState(state) {
+  getDb().prepare(`UPDATE game_state SET xp=?, sparks=?, streak=?, longest=?, freezes=?,
+      last_active_day=?, mark=?, leaderboard_opt_in=? WHERE student_id=?`)
+    .run(state.xp, state.sparks, state.streak, state.longest, state.freezes,
+      state.lastActiveDay ?? null, state.mark ?? null, state.leaderboardOptIn ? 1 : 0, state.studentId);
+  return getGameState(state.studentId);
+}
+
+export function addReward({ studentId, attemptId = null, source, xp, sparks, lines = [] }) {
+  getDb().prepare('INSERT INTO rewards (student_id,attempt_id,source,xp,sparks,lines,created_at) VALUES (?,?,?,?,?,?,?)')
+    .run(studentId, attemptId, source, xp, sparks, j(lines), now());
+}
+
+export function listRewards(studentId, sinceIso = null) {
+  const d = getDb();
+  const rows = sinceIso
+    ? d.prepare('SELECT * FROM rewards WHERE student_id = ? AND created_at >= ? ORDER BY created_at').all(studentId, sinceIso)
+    : d.prepare('SELECT * FROM rewards WHERE student_id = ? ORDER BY created_at').all(studentId);
+  return rows.map((r) => ({ id: r.id, attemptId: r.attempt_id, source: r.source, xp: r.xp, sparks: r.sparks, lines: p(r.lines, []), createdAt: r.created_at }));
+}
+
+export function xpSince(studentId, sinceIso) {
+  const row = getDb().prepare('SELECT COALESCE(SUM(xp),0) AS xp FROM rewards WHERE student_id = ? AND created_at >= ?').get(studentId, sinceIso);
+  return row?.xp || 0;
+}
+
+export function addUnlock({ studentId, kind, key, meta = null }) {
+  try {
+    getDb().prepare('INSERT INTO unlocks (student_id,kind,key,meta,created_at) VALUES (?,?,?,?,?)')
+      .run(studentId, kind, key, j(meta), now());
+    return true;
+  } catch {
+    return false;   // already held; unlocks are idempotent by design
+  }
+}
+
+export function listUnlocks(studentId) {
+  return getDb().prepare('SELECT * FROM unlocks WHERE student_id = ? ORDER BY created_at').all(studentId)
+    .map((r) => ({ kind: r.kind, key: r.key, meta: p(r.meta), at: r.created_at }));
+}
+
+export function getQuests(studentId, period, periodKey) {
+  return getDb().prepare('SELECT * FROM quests WHERE student_id = ? AND period = ? AND period_key = ?')
+    .all(studentId, period, periodKey)
+    .map((r) => ({ id: r.id, key: r.quest_key, period: r.period, periodKey: r.period_key, goal: r.goal, xp: r.xp, rerolls: r.rerolls, claimed: !!r.claimed }));
+}
+
+export function saveQuests(studentId, quests, rerolls = 0) {
+  const d = getDb();
+  for (const q of quests) {
+    d.prepare(`INSERT OR IGNORE INTO quests (student_id,period,period_key,quest_key,goal,xp,rerolls,created_at)
+      VALUES (?,?,?,?,?,?,?,?)`).run(studentId, q.period, q.periodKey, q.key, q.goal, q.xp, rerolls, now());
+  }
+  return getQuests(studentId, quests[0]?.period, quests[0]?.periodKey);
+}
+
+export function clearQuests(studentId, period, periodKey) {
+  getDb().prepare('DELETE FROM quests WHERE student_id = ? AND period = ? AND period_key = ? AND claimed = 0')
+    .run(studentId, period, periodKey);
+}
+
+export function claimQuest(studentId, period, periodKey, questKey) {
+  const d = getDb();
+  const row = d.prepare('SELECT * FROM quests WHERE student_id=? AND period=? AND period_key=? AND quest_key=? AND claimed=0')
+    .get(studentId, period, periodKey, questKey);
+  if (!row) return null;
+  d.prepare('UPDATE quests SET claimed = 1 WHERE id = ?').run(row.id);
+  return { key: row.quest_key, xp: row.xp };
+}
+
+export function insertDuel(duel) {
+  getDb().prepare('INSERT INTO duels (id,student_id,task_id,peer_attempt_id,peer_student_id,score,response,criteria,created_at) VALUES (?,?,?,?,?,?,?,?,?)')
+    .run(duel.id, duel.studentId, duel.taskId, duel.peerAttemptId, duel.peerStudentId, duel.score, j(duel.response), j(duel.criteria), now());
+}
+
+export function listDuels(studentId, sinceIso = null) {
+  const d = getDb();
+  const rows = sinceIso
+    ? d.prepare('SELECT * FROM duels WHERE student_id = ? AND created_at >= ?').all(studentId, sinceIso)
+    : d.prepare('SELECT * FROM duels WHERE student_id = ?').all(studentId);
+  return rows.map((r) => ({ id: r.id, taskId: r.task_id, peerAttemptId: r.peer_attempt_id, score: r.score, createdAt: r.created_at }));
+}
+
+/** A peer answer on the same commission, from someone else, never the same student. */
+export function findPeerAttempt(studentId, taskId) {
+  return getDb().prepare(`SELECT * FROM attempts WHERE task_id = ? AND student_id != ? AND score IS NOT NULL
+      AND id NOT IN (SELECT COALESCE(peer_attempt_id,'') FROM duels WHERE student_id = ?)
+      ORDER BY created_at DESC LIMIT 1`)
+    .all(taskId, studentId, studentId).map(mapAttempt)[0] || null;
+}
+
+export function leaderboard(sinceIso) {
+  return getDb().prepare(`SELECT s.id, s.display_name, g.mark, COALESCE(SUM(r.xp),0) AS xp
+      FROM students s JOIN game_state g ON g.student_id = s.id
+      LEFT JOIN rewards r ON r.student_id = s.id AND r.created_at >= ?
+      WHERE g.leaderboard_opt_in = 1
+      GROUP BY s.id ORDER BY xp DESC`).all(sinceIso)
+    .map((r) => ({ studentId: r.id, displayName: r.display_name, mark: r.mark, xp: r.xp }));
+}
+
+export function classXpSince(sinceIso) {
+  const row = getDb().prepare('SELECT COALESCE(SUM(xp),0) AS xp FROM rewards WHERE created_at >= ?').get(sinceIso);
+  return row?.xp || 0;
+}
+
 export function exportStudent(studentId) {
   return {
     student: getStudent(studentId),
@@ -273,6 +428,9 @@ export function exportStudent(studentId) {
     attempts: listAttempts(studentId, 10000),
     transcripts: listTranscripts(studentId, 10000),
     snapshots: listSnapshots(studentId, 1000),
+    game: getGameState(studentId),
+    rewards: listRewards(studentId),
+    unlocks: listUnlocks(studentId),
     exportedAt: now(),
   };
 }

@@ -54,12 +54,37 @@ await page.waitForSelector('text=Where else this works', { timeout: 20000 })
   .catch(() => { throw new Error('no feedback panel after submitting'); });
 await shot(page, '5-feedback');
 
-for (const [hash, marker] of [['#growth', 'The six growth indices'], ['#teacher', 'Where the class is'], ['#moves', 'The moves'], ['#about', 'How Thinkforge works']]) {
+// the game layer: the HUD must be live, and the Forge must render every panel
+await page.waitForSelector('#hud .chip', { timeout: 5000 }).catch(() => { throw new Error('the HUD did not appear'); });
+for (const [hash, marker] of [
+  ['#forge', 'Boss commissions'],
+  ['#forge', 'Your tools'],
+  ['#forge', 'Trophies'],
+  ['#growth', 'The six growth indices'],
+  ['#teacher', 'Where the class is'],
+  ['#moves', 'The moves'],
+  ['#about', 'How Thinkforge works'],
+]) {
   await page.goto(BASE + '/' + hash, { waitUntil: 'networkidle' });
   await page.waitForTimeout(500);
   await page.waitForSelector(`text=${marker}`, { timeout: 15000 })
     .catch(() => { throw new Error(`${hash} did not render`); });
   await shot(page, hash.slice(1));
+}
+
+// a forge-off against a seeded classmate
+await page.goto(`${BASE}/#duel/lat-t1-pmi-nohomework`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(700);
+if (await page.isVisible('text=No opponent yet')) {
+  console.log('forge-off: no seeded opponent for that commission (expected on an empty database)');
+} else {
+  const duelFields = await page.$$('textarea');
+  await duelFields[0].fill('They gave three genuinely different pluses rather than the same idea three times, and the minus about tests is a real cost.');
+  await duelFields[1].fill('There is no interesting entry that is neither good nor bad — everything is already judged, so the move was not really run.');
+  await page.click('button:has-text("Submit critique")');
+  await page.waitForSelector('text=Both of you earned', { timeout: 20000 })
+    .catch(() => { throw new Error('the forge-off did not resolve'); });
+  await shot(page, 'duel');
 }
 
 await browser.close();

@@ -1,4 +1,4 @@
-import { h, api, store, go, md } from '../core.js';
+import { h, api, store, go, md, refreshGame } from '../core.js';
 
 const strandColour = (id) => (store.status?.strands || []).find((x) => x.id === id)?.colour || 'var(--accent)';
 const moveInfo = (id) => {
@@ -46,6 +46,7 @@ export function missionCard(task) {
     if (!revisionOf) { state.attemptId = result.attempt.id; state.firstScore = result.scored.score; }
     submitBtn.textContent = 'Submit revision';
     outcome.replaceChildren(feedbackPanel(task, result, state, revisionOf));
+    refreshGame();
     outcome.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -221,6 +222,7 @@ function feedbackPanel(task, result, state, wasRevision) {
   const tone = pct >= 75 ? 'good' : pct >= 45 ? 'warn' : 'bad';
 
   const panel = h('div', { class: 'stack' },
+    result.rewards ? rewardsPanel(result.rewards) : null,
     h('div', { class: 'card' },
       h('div', { class: 'row between' },
         h('h2', { style: { margin: 0 } }, `${pct}%`),
@@ -275,9 +277,46 @@ function feedbackPanel(task, result, state, wasRevision) {
       h('p', {}, result.bridge),
       h('div', { class: 'row' },
         h('button', { class: 'primary', onclick: () => go('session') }, 'Next mission'),
+        h('button', { onclick: () => go(`duel/${task.id}`) }, 'Forge-off on this one'),
         h('button', { onclick: () => go('growth') }, 'See what changed'))),
   );
   return panel;
+}
+
+/** What this attempt earned, and — more importantly — what each line certifies. */
+function rewardsPanel(rewards) {
+  const grouped = new Map();
+  for (const line of rewards.lines) {
+    const cur = grouped.get(line.key) || { ...line, xp: 0, sparks: 0, count: 0, details: [] };
+    cur.xp += line.xp; cur.sparks += line.sparks; cur.count += 1;
+    if (line.detail) cur.details.push(line.detail);
+    grouped.set(line.key, cur);
+  }
+  return h('div', { class: 'rewards celebrate' },
+    h('div', { class: 'head' },
+      h('span', { class: 'big' }, `+${rewards.xp} XP`),
+      h('div', { class: 'pill-row' },
+        h('span', { class: 'tag' }, `✦ ${rewards.sparks}`),
+        h('span', { class: 'tag' }, `🔥 ${rewards.streak.streak}`),
+        h('span', { class: 'tag' }, `${rewards.rank.mark} ${rewards.rank.name}`))),
+    h('ul', {}, [...grouped.values()].map((l) => h('li', {},
+      h('b', {}, `+${l.xp}`),
+      h('span', {}, h('strong', {}, l.label + (l.count > 1 ? ` ×${l.count}` : '')), ' — ', l.certifies,
+        l.details.length ? h('small', { class: 'muted' }, ` (${l.details.join('; ')})`) : null)))),
+    rewards.quests?.length
+      ? h('p', { style: { marginTop: '10px' } }, '🎯 Quest complete: ', rewards.quests.map((q) => `${q.label} (+${q.xp} XP)`).join(', '))
+      : null,
+    rewards.tempered?.length
+      ? h('p', { style: { marginTop: '6px' } }, '🔨 Tempered: ', rewards.tempered.map((t) => `${t.name} ${t.from} → ${t.to}`).join(', '))
+      : null,
+    rewards.badges?.length
+      ? h('p', { style: { marginTop: '6px' } }, '🏅 Trophy: ', rewards.badges.map((b) => `${b.glyph} ${b.name} — ${b.blurb}`).join(' · '))
+      : null,
+    rewards.rankUp
+      ? h('p', { style: { marginTop: '6px' } }, `${rewards.rankUp.mark} You are now a ${rewards.rankUp.name}.`)
+      : null,
+    h('small', { class: 'muted', style: { display: 'block', marginTop: '8px' } }, rewards.streak.message),
+    h('small', { class: 'muted', style: { display: 'block' } }, 'None of this is paid for being right — every line above is a behaviour.'));
 }
 
 function fbLine(label, text) {

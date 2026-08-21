@@ -231,3 +231,67 @@ th { font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; color:
   .topbar { padding: 10px 14px; }
   .timeline .entry { grid-template-columns: 1fr; gap: 2px; }
 }
+
+/* ---------- the forge (game layer) ---------- */
+
+.hud { display: flex; gap: 10px; align-items: center; font-size: .84rem; }
+.hud .chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--line); font-weight: 650; white-space: nowrap;
+}
+.hud .chip b { font-weight: 800; }
+.hud .rankbar { width: 74px; height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.hud .rankbar i { display: block; height: 100%; background: linear-gradient(90deg, #f59e0b, #ef4444); }
+
+.xpbar { height: 12px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.xpbar i { display: block; height: 100%; background: linear-gradient(90deg, #f59e0b, #ef4444); }
+.goalbar { height: 18px; border-radius: 999px; background: var(--surface-2); overflow: hidden; position: relative; }
+.goalbar i { display: block; height: 100%; background: linear-gradient(90deg, #14b8a6, #3b82f6); }
+.goalbar span { position: absolute; inset: 0; display: grid; place-items: center; font-size: .75rem; font-weight: 700; }
+
+.quest { display: grid; gap: 8px; padding: 13px 15px; border-radius: var(--radius-s); background: var(--surface-2); }
+.quest.done { background: color-mix(in oklab, var(--good) 14%, var(--surface)); }
+.quest .top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.quest .prog { height: 7px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.quest .prog i { display: block; height: 100%; background: var(--accent); }
+
+.deck { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 11px; }
+.tcard {
+  border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--surface);
+  display: grid; gap: 6px; position: relative; overflow: hidden; min-height: 128px;
+}
+.tcard::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 4px; background: var(--strand, var(--accent)); }
+.tcard.locked { opacity: .48; background: var(--surface-2); }
+.tcard.bronze { box-shadow: inset 0 0 0 1px #b4703a44; }
+.tcard.silver { box-shadow: inset 0 0 0 1px #9aa6b288; }
+.tcard.gold { box-shadow: inset 0 0 0 2px #d9a441; background: linear-gradient(160deg, color-mix(in oklab, #d9a441 10%, var(--surface)), var(--surface)); }
+.tcard .name { font-weight: 700; line-height: 1.25; }
+.tcard .meta { display: flex; gap: 6px; flex-wrap: wrap; font-size: .68rem; color: var(--ink-2); }
+.tcard .pipset { display: flex; gap: 3px; }
+.tcard .pipset i { width: 14px; height: 5px; border-radius: 2px; background: var(--line); }
+.tcard .pipset i.on { background: var(--strand, var(--accent)); }
+.tcard .next { font-size: .72rem; color: var(--ink-3); }
+
+.trophies { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.trophy { text-align: center; padding: 14px 10px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+.trophy.locked { opacity: .4; }
+.trophy .glyph { font-size: 1.7rem; line-height: 1; }
+.trophy .tname { font-weight: 700; font-size: .85rem; margin-top: 6px; }
+.trophy .tblurb { font-size: .72rem; color: var(--ink-2); margin-top: 4px; }
+
+.rewards { border: 1px solid var(--line); border-left: 4px solid #f59e0b; border-radius: var(--radius-s); background: var(--surface-2); padding: 14px 16px; }
+.rewards .head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.rewards .big { font-size: 1.6rem; font-weight: 800; letter-spacing: -.03em; }
+.rewards ul { margin: 8px 0 0; padding-left: 0; list-style: none; display: grid; gap: 6px; }
+.rewards li { display: grid; grid-template-columns: 54px 1fr; gap: 10px; align-items: baseline; font-size: .9rem; }
+.rewards li b { font-variant-numeric: tabular-nums; }
+.celebrate { animation: pop .5s cubic-bezier(.2,1.4,.4,1); }
+@keyframes pop { from { transform: scale(.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+.leader { display: grid; gap: 6px; }
+.leader .row { display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); }
+.leader .row.me { outline: 2px solid var(--accent); }
+
+.duel-answer { background: var(--surface-2); border-radius: var(--radius-s); padding: 14px 16px; display: grid; gap: 10px; }
+.duel-answer .field { font-size: .95rem; }
+.duel-answer .field b { display: block; font-size: .74rem; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); }

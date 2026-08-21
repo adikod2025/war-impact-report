@@ -14,7 +14,7 @@ pretending.
 cd thinkforge
 node scripts/seed.mjs      # optional: a demo class of five learners
 npm start                  # http://localhost:4173
-npm test                   # 70 tests, no network needed
+npm test                   # 112 tests, no network needed
 ```
 
 To turn on AI marking, coaching and growth narratives:
@@ -36,7 +36,8 @@ npm start
 
 ## What it teaches
 
-Eight strands, 45 named moves, 56 authored missions across four tiers.
+Eight strands, 45 named moves, 56 authored missions across four tiers — and a
+game layer built on top of them, not bolted beside them.
 
 | Strand | Claim | Moves include |
 |---|---|---|
@@ -97,6 +98,42 @@ Four layers, and AI is never the sole judge.
 - A teacher override replaces the score and **replays** the strand from the
   starting prior, so the estimate is rebuilt rather than patched.
 
+## The game layer
+
+The Forge: you are an apprentice in a workshop where thinking tools are made.
+Missions are *commissions*, moves are *tools you forge and temper*, and the whole
+layer is designed against the evidence rather than around it
+([`docs/04-gamification.md`](docs/04-gamification.md)).
+
+- **Nothing is paid for being right.** XP goes to carrying a move into a
+  situation you have never used it in (the largest single award), predicting your
+  own score honestly — *including a low one* — revising after coaching, and
+  working unaided. The fastest way to earn is the most useful thing you could be
+  doing.
+- **The deck is your mastery, rendered.** Each of the 45 moves is a card that
+  advances locked → bronze → silver → gold on the platform's own definitions.
+  No packs, no duplicates, no randomness: the only way to get a card is to think.
+- **Trophies are credentials.** Every badge is a predicate over real evidence and
+  displays the commissions that earned it.
+- **Quests** are re-rollable and behavioural; **boss commissions** unlock when you
+  already hold enough of the tools they need.
+- **Competition only alongside collaboration**, which is the moderator that
+  actually moved outcomes in the meta-analysis: the class shares one weekly goal,
+  and the head-to-head mechanic — the **Forge-off** — is won by improving an
+  anonymous classmate's reasoning. Both sides earn; nobody loses anything.
+- **Streaks with the teeth removed**: two automatic freezes, no nagging, no
+  countdown, and a lapse costs nothing already earned.
+- **The leaderboard is off by default**, opt-in per student, and ranks XP earned
+  this week — effort, not ability. Hanus & Fox found leaderboards-plus-badges
+  made students measurably worse off; that is why it is the one mechanic here
+  somebody has to switch on deliberately.
+- **Sparks** buy freezes, free choice of commission, and cosmetic forge marks.
+  They cannot buy hints, scores or levels.
+
+The teacher view shows **what XP is being paid for** across the class, so if the
+game starts rewarding attendance rather than transfer and calibration, that is
+visible rather than hidden inside the mechanic.
+
 ## The coach
 
 Socratic by construction: reflective question → focus hint → completion problem →
@@ -132,16 +169,19 @@ whatever is most overdue.
 ## Layout
 
 ```
-docs/           research synthesis, learning architecture, scoring/tutoring/growth spec
+docs/           research synthesis, learning architecture, scoring/tutoring/growth
+                spec, gamification design
 server/
   content/      strands, moves, 34 rubric criteria, 56 missions
   engine/       text features, Elo, probe machines, deterministic layer,
                 offline estimator, scoring, mastery, growth, selector
+  game/         XP and ranks, the card deck, trophies, quests, streaks, duels
   ai/           client, prompts, rubric marker, tutor, narratives, safety
   db.mjs        node:sqlite schema and queries
   router.mjs    the HTTP API
 client/         single-page app: no framework, no build step
-tests/          content authoring rules, engine, safety, API integration
+tests/          content authoring rules, engine, game layer, safety, AI contract,
+                API integration
 scripts/seed.mjs   demo class
 ```
 
@@ -160,6 +200,12 @@ scripts/seed.mjs   demo class
 | `POST` | `/api/tutor` | One coaching turn |
 | `POST` | `/api/students/:id/snapshot` | Write a growth snapshot and story |
 | `GET` | `/api/teacher/cohort` | Class heatmap, review queue, class-wide gap |
+| `GET` | `/api/students/:id/game` | The Forge: rank, XP, sparks, streak, deck, trophies, quests, bosses |
+| `POST` | `/api/students/:id/quests/reroll` | Swap the day's or week's quests (free) |
+| `POST` | `/api/students/:id/spend` | Spend sparks on a freeze, free choice or a mark |
+| `POST` | `/api/students/:id/leaderboard-opt-in` | Opt into (or out of) the effort ranking |
+| `GET` | `/api/leaderboard` · `/api/class-goal` | Opt-in weekly effort ranking; the class's shared goal |
+| `GET` | `/api/students/:id/duel` · `POST /api/duel` | Start and submit a Forge-off |
 | `POST` | `/api/teacher/override` | Re-score an attempt and rebuild the estimate |
 | `GET` | `/api/students/:id/export` · `DELETE /api/students/:id` | Data rights |
 

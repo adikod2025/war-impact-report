@@ -99,6 +99,51 @@ route('POST', /^\/api\/students\/([\w]+)\/snapshot$/, async (req, res, [id]) => 
 
 route('GET', /^\/api\/students\/([\w]+)\/snapshots$/, (req, res, [id]) => send(res, 200, { snapshots: db.listSnapshots(id) }));
 
+/* --------------------------------------------------------------- the forge */
+
+route('GET', /^\/api\/students\/([\w]+)\/game$/, (req, res, [id]) => {
+  const out = svc.gameFor(id);
+  return out ? send(res, 200, out) : send(res, 404, { error: 'not_found' });
+});
+
+route('POST', /^\/api\/students\/([\w]+)\/quests\/reroll$/, async (req, res, [id]) => {
+  const { period = 'day' } = await readJson(req);
+  if (!['day', 'week'].includes(period)) return send(res, 400, { error: 'bad_period' });
+  return send(res, 200, svc.rerollQuests(id, period));
+});
+
+route('POST', /^\/api\/students\/([\w]+)\/spend$/, async (req, res, [id]) => {
+  const { item } = await readJson(req);
+  const out = svc.spendSparks(id, String(item || ''));
+  return out.error ? send(res, 400, out) : send(res, 200, out);
+});
+
+route('POST', /^\/api\/students\/([\w]+)\/mark$/, async (req, res, [id]) => {
+  const { key } = await readJson(req);
+  const out = svc.setMark(id, key || null);
+  return out.error ? send(res, 400, out) : send(res, 200, out);
+});
+
+route('POST', /^\/api\/students\/([\w]+)\/leaderboard-opt-in$/, async (req, res, [id]) => {
+  const { optIn } = await readJson(req);
+  return send(res, 200, svc.setLeaderboardOptIn(id, !!optIn));
+});
+
+route('GET', /^\/api\/leaderboard$/, (req, res) => send(res, 200, svc.leaderboard()));
+
+route('GET', /^\/api\/class-goal$/, (req, res) => send(res, 200, svc.classGoal()));
+
+route('GET', /^\/api\/students\/([\w]+)\/duel$/, (req, res, [id], url) => {
+  const out = svc.startDuel({ studentId: id, taskId: url.searchParams.get('taskId') });
+  return out.error ? send(res, out.error === 'no_opponent' ? 200 : 404, out) : send(res, 200, out);
+});
+
+route('POST', /^\/api\/duel$/, async (req, res) => {
+  const body = await readJson(req);
+  const out = await svc.submitDuel(body);
+  return out.error ? send(res, 404, out) : send(res, 200, out);
+});
+
 /* ------------------------------------------------------------------ teacher */
 
 route('GET', /^\/api\/teacher\/cohort$/, (req, res) => send(res, 200, svc.cohort()));

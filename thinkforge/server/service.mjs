@@ -16,6 +16,8 @@ import { tutorTurn } from './ai/tutor.mjs';
 import { growthStory } from './ai/narrative.mjs';
 import { aiStatus } from './ai/client.mjs';
 import { screenStudentText } from './ai/safety.mjs';
+import * as game from './game/index.mjs';
+import { critiqueTask, anonymise } from './game/duel.mjs';
 
 const START_THETA = -1.0;
 
@@ -236,8 +238,10 @@ export async function submitAttempt({ studentId, taskId, response = {}, revision
     db.upsertStrandState(studentId, strand, su.theta, row.n + 1);
   }
 
-  // Move retention state
+  // Move retention state. The snapshot before the update is what the game
+  // layer diffs against, so a card can only advance when the mastery did.
   const moveStates = db.getMoveStates(studentId);
+  const beforeMoveStates = moveStates.map((m) => ({ ...m, domains: [...(m.domains || [])] }));
   for (const move of task.moves) {
     const s = moveStates.find((x) => x.move === move)
       || { move, successes: 0, failures: 0, unaidedSuccesses: 0, domains: [], level: 0 };
@@ -277,9 +281,17 @@ export async function submitAttempt({ studentId, taskId, response = {}, revision
   const levelNow = levelForTheta(upd.theta);
   const levelBefore = levelForTheta(primary.theta);
 
+  const original = revisionOf ? db.getAttempt(revisionOf) : null;
+  const rewards = grantRewards({
+    studentId, task, scored, attempt,
+    beforeMoveStates,
+    revisionGain: original ? scored.score - original.score : null,
+  });
+
   return {
     valid: true,
     attempt,
+    rewards,
     scored: {
       score: scored.score, adjustedScore: scored.adjustedScore, confidence: scored.confidence,
       scorer: scored.scorer, criteria: scored.criteria, capsApplied: scored.capsApplied,
@@ -296,6 +308,260 @@ export async function submitAttempt({ studentId, taskId, response = {}, revision
       : null,
     exemplar: task.rubric?.solo?.[3] || null,
     bridge: task.bridge,
+  };
+}
+
+/* ------------------------------------------------------------ the game layer */
+
+const WEEK_START = () => `${game.weekKey()}T00:00:00.000Z`;
+const CLASS_GOAL_PER_STUDENT = 250;
+
+/**
+ * Turn one completed attempt into XP, sparks, tempered cards, badges, quest
+ * progress and a streak update. Nothing here can be earned without the
+ * corresponding learning event having actually happened (docs/04 §2).
+ */
+function grantRewards({ studentId, task, scored, attempt, beforeMoveStates, revisionGain }) {
+  const afterMoveStates = db.getMoveStates(studentId);
+  const earned = game.rewardsForAttempt({ task, scored, attempt, beforeMoveStates, afterMoveStates, revisionGain });
+
+  const state = db.getGameState(studentId);
+  const streak = game.updateStreak(state, game.dayKey());
+  const next = {
+    ...state,
+    xp: state.xp + earned.xp,
+    sparks: state.sparks + earned.sparks,
+    streak: streak.streak, longest: streak.longest, freezes: streak.freezes,
+    lastActiveDay: streak.lastActiveDay,
+  };
+  db.addReward({ studentId, attemptId: attempt.id, source: 'attempt', xp: earned.xp, sparks: earned.sparks, lines: earned.lines });
+
+  const attempts = db.listAttempts(studentId);
+  const deck = game.deckFor(afterMoveStates);
+  const bosses = game.bossCommissions(afterMoveStates);
+  const held = new Set(db.listUnlocks(studentId).filter((u) => u.kind === 'badge').map((u) => u.key));
+  const newBadges = game.checkBadges({
+    attempts, indices: indices(attempts, heldMoves(studentId)), moveStates: afterMoveStates, deck, bosses, held,
+  });
+  for (const b of newBadges) db.addUnlock({ studentId, kind: 'badge', key: b.key, meta: { evidence: b.evidence, name: b.name } });
+
+  // Quests are evaluated after the attempt lands, so an award always reflects
+  // work that is already recorded.
+  const questResult = settleQuests({ studentId, attempts, deck, bosses, afterMoveStates, earned, attemptId: attempt.id });
+  next.xp += questResult.xp;
+  next.sparks += questResult.sparks;
+
+  const saved = db.saveGameState(next);
+  const rankBefore = game.rankFor(state.xp);
+  const rankAfter = game.rankFor(saved.xp);
+
+  return {
+    lines: earned.lines,
+    xp: earned.xp + questResult.xp,
+    sparks: earned.sparks + questResult.sparks,
+    total: { xp: saved.xp, sparks: saved.sparks },
+    rank: rankAfter,
+    rankUp: rankAfter.key !== rankBefore.key ? rankAfter : null,
+    tempered: earned.tempered,
+    badges: newBadges,
+    quests: questResult.claimed,
+    streak: { ...streak, message: game.streakMessage(streak) },
+    isBoss: earned.isBoss,
+  };
+}
+
+function questsFor(studentId, period, ctx, { regenerate = false } = {}) {
+  const periodKey = period === 'day' ? game.dayKey() : game.weekKey();
+  let stored = db.getQuests(studentId, period, periodKey);
+  if (!stored.length || regenerate) {
+    const rerolls = regenerate ? (stored[0]?.rerolls || 0) + 1 : 0;
+    if (regenerate) db.clearQuests(studentId, period, periodKey);
+    const generated = game.generateQuests({ studentId, period, ctx, rerolls });
+    db.saveQuests(studentId, generated, rerolls);
+    stored = db.getQuests(studentId, period, periodKey);
+  }
+  return stored.map((q) => ({ ...q, ...game.getQuest(q.key), goal: q.goal, xp: q.xp, period, periodKey }));
+}
+
+function settleQuests({ studentId, attempts, deck, bosses, afterMoveStates, earned, attemptId }) {
+  const ctx = game.questContext({
+    attempts, deck, bosses,
+    duelsThisWeek: db.listDuels(studentId, WEEK_START()).length,
+    newDomainEvents: earned.newDomains.map((m) => ({ attemptId, move: m })),
+    temperEvents: earned.tempered.map((t) => ({ attemptId, move: t.move })),
+  });
+  const today = game.dayKey();
+  const week = game.weekKey();
+  const todayAttempts = attempts.filter((a) => a.createdAt.slice(0, 10) === today);
+  const weekAttempts = attempts.filter((a) => a.createdAt.slice(0, 10) >= week);
+
+  const claimed = [];
+  let xp = 0;
+  let sparks = 0;
+  for (const period of ['day', 'week']) {
+    for (const quest of questsFor(studentId, period, ctx)) {
+      if (quest.claimed) continue;
+      const progressed = game.progressFor(quest, period === 'day' ? todayAttempts : weekAttempts, ctx);
+      if (!progressed.done) continue;
+      const paid = db.claimQuest(studentId, period, quest.periodKey, quest.key);
+      if (!paid) continue;
+      const sparkAward = game.AWARDS.quest.sparks;
+      xp += paid.xp;
+      sparks += sparkAward;
+      db.addReward({ studentId, attemptId, source: `quest:${quest.key}`, xp: paid.xp, sparks: sparkAward, lines: [{ key: 'quest', xp: paid.xp, sparks: sparkAward, label: game.AWARDS.quest.label, certifies: quest.blurb, detail: quest.label }] });
+      claimed.push({ key: quest.key, label: quest.label, xp: paid.xp, sparks: sparkAward });
+    }
+  }
+  return { claimed, xp, sparks };
+}
+
+/** Everything the game surfaces render from. */
+export function gameFor(studentId) {
+  const student = db.getStudent(studentId);
+  if (!student) return null;
+  const moveStates = db.getMoveStates(studentId);
+  const attempts = db.listAttempts(studentId);
+  const deck = game.deckFor(moveStates);
+  const bosses = game.bossCommissions(moveStates);
+  const ctx = game.questContext({ attempts, deck, bosses, duelsThisWeek: db.listDuels(studentId, WEEK_START()).length });
+  const quests = [...questsFor(studentId, 'day', ctx), ...questsFor(studentId, 'week', ctx)];
+
+  return {
+    ...game.gameProfile({
+      state: db.getGameState(studentId),
+      moveStates, attempts,
+      indices: indices(attempts, heldMoves(studentId)),
+      quests,
+      unlocks: db.listUnlocks(studentId),
+      weekXp: db.xpSince(studentId, WEEK_START()),
+      duelsThisWeek: ctx.duelsThisPeriod,
+    }),
+    classGoal: classGoal(),
+    student: { id: student.id, displayName: student.displayName },
+  };
+}
+
+export function rerollQuests(studentId, period = 'day') {
+  const moveStates = db.getMoveStates(studentId);
+  const attempts = db.listAttempts(studentId);
+  const deck = game.deckFor(moveStates);
+  const bosses = game.bossCommissions(moveStates);
+  const ctx = game.questContext({ attempts, deck, bosses, duelsThisWeek: db.listDuels(studentId, WEEK_START()).length });
+  questsFor(studentId, period, ctx, { regenerate: true });
+  return gameFor(studentId);
+}
+
+/** Sparks buy autonomy and decoration. They cannot buy hints, scores or levels. */
+export function spendSparks(studentId, item) {
+  const state = db.getGameState(studentId);
+  const mark = game.MARKS.find((m) => m.key === item);
+  const spend = game.SPEND[item];
+  const cost = spend ? spend.cost : mark ? mark.cost : null;
+  if (cost === null) return { error: 'unknown_item' };
+  if (state.sparks < cost) return { error: 'not_enough_sparks', need: cost, have: state.sparks };
+
+  const next = { ...state, sparks: state.sparks - cost };
+  if (item === 'freeze') {
+    if (state.freezes >= game.DEFAULT_FREEZES + 3) return { error: 'freezes_full' };
+    next.freezes = state.freezes + 1;
+  }
+  if (mark) {
+    db.addUnlock({ studentId, kind: 'mark', key: mark.key, meta: { name: mark.name } });
+    next.mark = mark.key;
+  }
+  db.saveGameState(next);
+  return { ok: true, item, spent: cost, game: gameFor(studentId) };
+}
+
+export function setMark(studentId, key) {
+  const state = db.getGameState(studentId);
+  const owned = db.listUnlocks(studentId).some((u) => u.kind === 'mark' && u.key === key);
+  if (key && !owned) return { error: 'not_owned' };
+  db.saveGameState({ ...state, mark: key || null });
+  return { ok: true, game: gameFor(studentId) };
+}
+
+export function setLeaderboardOptIn(studentId, optIn) {
+  const state = db.getGameState(studentId);
+  db.saveGameState({ ...state, leaderboardOptIn: !!optIn });
+  return { ok: true, optIn: !!optIn };
+}
+
+/**
+ * The class's shared weekly goal — the collaboration half of the
+ * competition-plus-collaboration pairing the evidence favours.
+ */
+export function classGoal() {
+  const students = db.listStudents();
+  const target = Math.max(600, students.length * CLASS_GOAL_PER_STUDENT);
+  const progress = db.classXpSince(WEEK_START());
+  return {
+    week: game.weekKey(),
+    target,
+    progress,
+    share: Math.min(1, target ? progress / target : 0),
+    reached: progress >= target,
+    contributors: students.length,
+  };
+}
+
+/** Opt-in, effort-ranked, and empty unless somebody chose to appear. */
+export function leaderboard() {
+  return {
+    week: game.weekKey(),
+    basis: 'XP earned this week — effort, not ability. Opt in from your Forge page.',
+    rows: db.leaderboard(WEEK_START()),
+  };
+}
+
+/* ----------------------------------------------------------------- Forge-off */
+
+export function startDuel({ studentId, taskId }) {
+  const task = getTask(taskId);
+  if (!task) return { error: 'not_found' };
+  const peer = db.findPeerAttempt(studentId, taskId);
+  if (!peer) return { error: 'no_opponent', message: 'Nobody else has taken this commission yet. Try another one — or come back when they have.' };
+  const critique = critiqueTask(task);
+  return {
+    taskId,
+    peerAttemptId: peer.id,
+    peerAnswer: anonymise(peer, task),
+    task: publicTask(critique),
+    original: { title: task.title, prompt: task.prompt, stimulus: task.stimulus },
+  };
+}
+
+export async function submitDuel({ studentId, taskId, peerAttemptId, response = {} }) {
+  const task = getTask(taskId);
+  const peer = db.getAttempt(peerAttemptId);
+  if (!task || !peer || peer.studentId === studentId) return { error: 'not_found' };
+
+  const critique = critiqueTask(task);
+  const ai = await aiStatus();
+  const scored = await scoreResponse(critique, response, ai.available ? { aiRubric: makeAiRubric() } : {});
+  if (!scored.valid) return { valid: false, reason: scored.reason, repair: scored.repair };
+
+  const id = db.uid('d');
+  db.insertDuel({ id, studentId, taskId, peerAttemptId, peerStudentId: peer.studentId, score: scored.score, response, criteria: scored.criteria });
+
+  // Both sides earn: the critic for the thinking, the author for having their
+  // work studied. Nobody loses anything, and no ranking is produced.
+  const award = (target, key) => {
+    const a = game.AWARDS[key];
+    const st = db.getGameState(target);
+    db.saveGameState({ ...st, xp: st.xp + a.xp, sparks: st.sparks + a.sparks });
+    db.addReward({ studentId: target, attemptId: null, source: key, xp: a.xp, sparks: a.sparks, lines: [{ key, xp: a.xp, sparks: a.sparks, label: a.label, certifies: a.certifies }] });
+  };
+  award(studentId, 'duel');
+  award(peer.studentId, 'reviewed');
+
+  return {
+    valid: true,
+    score: scored.score,
+    criteria: scored.criteria,
+    feedback: offlineFeedback(critique, scored),
+    earned: { xp: game.AWARDS.duel.xp, sparks: game.AWARDS.duel.sparks },
+    game: gameFor(studentId),
   };
 }
 
@@ -413,7 +679,30 @@ export function cohort() {
     })),
     safety: db.listFlags({ resolved: 0 }).filter((f) => f.kind === 'safety'),
     missingElement: missingElementReadout(students),
+    classGoal: classGoal(),
+    xpComposition: xpComposition(students),
   };
+}
+
+/**
+ * What the game is actually paying for, class-wide (docs/04 §6). If XP drifts
+ * towards turning up rather than towards transfer and calibration, that is
+ * visible here rather than hidden inside the mechanic.
+ */
+function xpComposition(students) {
+  const totals = new Map();
+  let all = 0;
+  for (const s of students) {
+    for (const r of db.listRewards(s.id)) {
+      for (const line of r.lines || []) {
+        totals.set(line.key, (totals.get(line.key) || 0) + (line.xp || 0));
+        all += line.xp || 0;
+      }
+    }
+  }
+  return [...totals.entries()]
+    .map(([key, xp]) => ({ key, label: game.AWARDS[key]?.label || key, xp, share: all ? xp / all : 0 }))
+    .sort((a, b) => b.xp - a.xp);
 }
 
 /** "19 of 24 students omit the warrant" — the readout that drives the next lesson. */

@@ -195,10 +195,29 @@ supply the authenticity Abrami's meta-analysis identifies as a top-three driver.
 - **Author** — content tooling: authoring rules validated in CI; AI-drafted task
   variants land in a review queue and never enter the live bank unreviewed.
 
-## 8. What is deliberately *not* built
+## 8. The game layer
 
-- No leaderboards or streak-shaming: they push speed and answer-seeking, which is
-  the opposite of the target behaviour.
+Thinkforge carries a full game layer — ranks, XP, a collectible deck of tools,
+trophies, quests, streaks, boss commissions, a shared class goal and a peer
+duel. It is designed against the same evidence base as the rest of the platform,
+and its central rule is that **nothing is ever paid for being right**: XP is
+attached to carrying a move to new ground, predicting your own performance
+honestly, revising after coaching and working unaided. The deck is the move
+mastery model rendered, not a parallel economy.
+
+The two mechanics that the evidence specifically warns about are constrained
+rather than adopted wholesale: the leaderboard is **off by default**, opt-in per
+student, and ranks effort rather than ability; streaks carry freezes, cost
+nothing already earned when they lapse, and never nag. The full argument,
+including what was refused and why, is in
+[`04-gamification.md`](04-gamification.md).
+
+## 9. What is deliberately *not* built
+
+- No points for correct answers, no timers, no speed bonuses, no loot boxes and
+  no losable progress (see `04-gamification.md` §5).
+- No public ranking by ability — the one mechanic shown to make students worse
+  off is the one a person has to switch on deliberately.
 - No free-form chat outside a task context (safety, §5 of the research doc).
 - No claim of general IQ or "creativity" improvement — the platform claims only
   what it measures: named moves, in named domains, at measured independence.

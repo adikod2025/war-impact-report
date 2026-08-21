@@ -158,6 +158,108 @@ test('the cohort view exposes the review queue and the class-wide gap', async ()
   assert.ok(Array.isArray(cohort.missingElement));
 });
 
+/* ------------------------------------------------------------- the forge */
+
+test('a completed commission returns what it earned, and why each line was earned', async () => {
+  const out = await post('/api/attempts', {
+    studentId: student.id, taskId: 'log-t1-conditional-cancelled',
+    response: { choice: 'c', meta: { hintLevel: 0, confidence: 90 } },
+  });
+  assert.ok(out.rewards, 'every scored attempt must come back with its rewards');
+  assert.ok(out.rewards.xp > 0);
+  assert.ok(out.rewards.lines.every((l) => l.certifies && l.label));
+  assert.ok(out.rewards.lines.some((l) => l.key === 'new_tool'), 'a first use of a move is new ground');
+  assert.equal(out.rewards.streak.streak, 1);
+  assert.ok(out.rewards.rank.name);
+});
+
+test('the forge shows a deck derived from real mastery, plus quests', async () => {
+  const g = await get(`/api/students/${student.id}/game`);
+  assert.equal(g.deck.total, 45);
+  assert.ok(g.deck.owned >= 1 && g.deck.owned < g.deck.total);
+  assert.ok(g.deck.cards.find((c) => c.tier !== 'locked').next.length > 10, 'a card must say how to advance it');
+  assert.equal(g.quests.filter((q) => q.period === 'day').length, 3);
+  assert.equal(g.quests.filter((q) => q.period === 'week').length, 1);
+  assert.ok(g.bosses.length >= 3);
+  assert.equal(g.bosses.every((b) => b.unlocked), false, 'bosses start gated');
+  assert.ok(g.classGoal.target > 0);
+});
+
+test('quests can be swapped, and swapping is free', async () => {
+  const before = (await get(`/api/students/${student.id}/game`)).quests.filter((q) => q.period === 'day').map((q) => q.key);
+  const xpBefore = (await get(`/api/students/${student.id}/game`)).xp;
+  const after = (await post(`/api/students/${student.id}/quests/reroll`, { period: 'day' })).quests.filter((q) => q.period === 'day').map((q) => q.key);
+  assert.notDeepEqual(before, after);
+  assert.equal((await get(`/api/students/${student.id}/game`)).xp, xpBefore, 'a re-roll must not cost anything');
+});
+
+test('sparks buy freedom and decoration, and refuse when you cannot afford it', async () => {
+  const before = await get(`/api/students/${student.id}/game`);
+  const broke = await post(`/api/students/${student.id}/spend`, { item: 'crown' });
+  assert.equal(broke.error, 'not_enough_sparks');
+  const freeze = await post(`/api/students/${student.id}/spend`, { item: 'freeze' });
+  assert.equal(freeze.ok, true);
+  assert.equal(freeze.game.streak.freezes, before.streak.freezes + 1);
+  assert.equal(freeze.game.sparks, before.sparks - 15);
+  const nonsense = await post(`/api/students/${student.id}/spend`, { item: 'extra_points' });
+  assert.equal(nonsense.error, 'unknown_item');
+});
+
+test('the ranking is empty until somebody opts in, and ranks effort', async () => {
+  const off = await get('/api/leaderboard');
+  assert.equal(off.rows.length, 0, 'nobody is ranked by default');
+  assert.match(off.basis, /effort/i);
+  await post(`/api/students/${student.id}/leaderboard-opt-in`, { optIn: true });
+  const on = await get('/api/leaderboard');
+  assert.equal(on.rows.length, 1);
+  assert.equal(on.rows[0].studentId, student.id);
+  await post(`/api/students/${student.id}/leaderboard-opt-in`, { optIn: false });
+  assert.equal((await get('/api/leaderboard')).rows.length, 0);
+});
+
+test('a forge-off needs an opponent, and says so kindly when there is none', async () => {
+  const none = await get(`/api/students/${student.id}/duel?taskId=log-t1-conditional-cancelled`);
+  assert.equal(none.error, 'no_opponent');
+  assert.match(none.message, /Nobody else/i);
+});
+
+test('a forge-off scores the critique, hides the author, and pays both sides', async () => {
+  const { student: rival } = await post('/api/students', { displayName: 'Bo', age: 12, consent: true });
+  await post('/api/attempts', {
+    studentId: rival.id, taskId: 'arg-t1-toulmin-lite',
+    response: {
+      fields: {
+        claim: 'The school should put a bike rack by the science block',
+        evidence: 'Seven bikes are propped on the railings every morning',
+        warrant: 'Because bikes are there',
+      },
+      meta: { hintLevel: 0, confidence: 60 },
+    },
+  });
+
+  const duel = await get(`/api/students/${student.id}/duel?taskId=arg-t1-toulmin-lite`);
+  assert.ok(duel.peerAttemptId);
+  assert.equal(JSON.stringify(duel).includes(rival.id), false, 'the author must not be identifiable');
+  assert.equal(JSON.stringify(duel).includes('Bo'), false);
+  assert.equal(duel.task.payload.fields.length, 2);
+
+  const rivalBefore = await get(`/api/students/${rival.id}/game`);
+  const out = await post('/api/duel', {
+    studentId: student.id, taskId: 'arg-t1-toulmin-lite', peerAttemptId: duel.peerAttemptId,
+    response: {
+      fields: {
+        strongest: 'They did not just assert it — they gave a real observation about where bikes end up every morning, which is checkable.',
+        missing: 'There is no warrant: no general rule saying that where things pile up is where the storage is needed, so the evidence could point elsewhere.',
+      },
+    },
+  });
+  assert.equal(out.valid, true);
+  assert.ok(out.score > 0);
+  assert.equal(out.earned.xp, 35);
+  const rivalAfter = await get(`/api/students/${rival.id}/game`);
+  assert.ok(rivalAfter.xp > rivalBefore.xp, 'the author earns for having their work studied');
+});
+
 test('everything can be exported and then deleted', async () => {
   const dump = await get(`/api/students/${student.id}/export`);
   assert.equal(dump.student.id, student.id);

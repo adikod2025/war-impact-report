@@ -60,7 +60,36 @@ export const store = {
   set studentId(v) { v ? localStorage.setItem('tf.student', v) : localStorage.removeItem('tf.student'); },
   status: null,
   profile: null,
+  game: null,
 };
+
+/** Refresh the game state behind the HUD. Never blocks a view from rendering. */
+export async function refreshGame() {
+  if (!store.studentId) { store.game = null; paintHud(); return null; }
+  try {
+    store.game = await api.get(`/api/students/${store.studentId}/game`);
+  } catch {
+    store.game = null;
+  }
+  paintHud();
+  return store.game;
+}
+
+export function paintHud() {
+  const el = document.getElementById('hud');
+  if (!el) return;
+  const g = store.game;
+  if (!g) { el.replaceChildren(); return; }
+  const mark = (g.marks || []).find((m) => m.key === g.activeMark);
+  el.replaceChildren(
+    h('a', { class: 'chip', href: '#forge', title: `${g.rank.name}${g.rank.next ? ` · ${g.rank.toNext} XP to ${g.rank.next.name}` : ''}`, style: { textDecoration: 'none', color: 'inherit' } },
+      h('span', {}, mark ? mark.glyph : g.rank.mark),
+      h('b', {}, String(g.xp)), 'XP',
+      h('span', { class: 'rankbar' }, h('i', { style: { width: `${Math.round(g.rank.progress * 100)}%` } }))),
+    h('a', { class: 'chip', href: '#forge', title: 'Days in a row the forge was lit', style: { textDecoration: 'none', color: 'inherit' } }, '🔥', h('b', {}, String(g.streak.current))),
+    h('a', { class: 'chip', href: '#forge', title: 'Sparks — spend them on freezes, free choice and marks', style: { textDecoration: 'none', color: 'inherit' } }, '✦', h('b', {}, String(g.sparks))),
+  );
+}
 
 const routes = new Map();
 export function route(name, render) { routes.set(name, render); }
@@ -79,7 +108,9 @@ export async function render() {
   el.replaceChildren(h('p', { class: 'loading' }, 'Loading…'));
   try {
     const out = await view(params);
-    el.replaceChildren(...(Array.isArray(out) ? out : [out]));
+    // Views may return nested arrays; replaceChildren would stringify those.
+    const nodes = (Array.isArray(out) ? out : [out]).flat(4).filter((n) => n instanceof Node || typeof n === 'string');
+    el.replaceChildren(...nodes);
     window.scrollTo(0, 0);   // not scrollIntoView: that hides the heading under the sticky bar
   } catch (err) {
     el.replaceChildren(h('div', { class: 'card' },
@@ -92,7 +123,7 @@ export async function render() {
 
 function paintNav(current) {
   const items = store.studentId
-    ? [['home', 'Home'], ['session', 'Session'], ['growth', 'Growth'], ['moves', 'The moves'], ['teacher', 'Teacher'], ['about', 'How it works']]
+    ? [['home', 'Home'], ['session', 'Session'], ['forge', 'The Forge'], ['growth', 'Growth'], ['moves', 'The moves'], ['teacher', 'Teacher'], ['about', 'How it works']]
     : [['home', 'Start'], ['moves', 'The moves'], ['teacher', 'Teacher'], ['about', 'How it works']];
   document.getElementById('nav').replaceChildren(...items.map(([path, label]) =>
     h('a', { href: `#${path}`, 'aria-current': path === current ? 'page' : null }, label)));

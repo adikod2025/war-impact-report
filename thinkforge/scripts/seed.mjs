@@ -128,6 +128,12 @@ function backdate(studentId, missions) {
     d.prepare('UPDATE attempts SET created_at = ? WHERE id = ?')
       .run(new Date(Date.now() - daysAgo * 86400000).toISOString(), row.id);
   });
+  d.prepare(`UPDATE rewards SET created_at = (SELECT a.created_at FROM attempts a WHERE a.id = rewards.attempt_id)
+      WHERE student_id = ? AND attempt_id IS NOT NULL`).run(studentId);
+  const days = d.prepare('SELECT COUNT(DISTINCT substr(created_at,1,10)) AS n FROM attempts WHERE student_id = ?').get(studentId)?.n || 1;
+  const streak = Math.max(1, Math.min(9, Math.round(days / 2)));
+  d.prepare('UPDATE game_state SET streak = ?, longest = ?, last_active_day = ? WHERE student_id = ?')
+    .run(streak, streak + 2, new Date().toISOString().slice(0, 10), studentId);
   const moves = d.prepare('SELECT move FROM move_state WHERE student_id = ?').all(studentId);
   moves.forEach((row, i) => {
     const daysAgo = 1 + ((i * 7) % Math.max(2, Math.round(missions / 2)));
@@ -168,6 +174,30 @@ for (const spec of LEARNERS) {
     };
     const out = await submitAttempt({ studentId: student.id, taskId: task.id, response });
     if (out.valid) done += 1;
+  }
+
+  // Consolidation pass: revisit moves in a second domain so the strongest
+  // learners actually temper cards and open a boss commission — otherwise the
+  // demo shows a deck that never advances past bronze.
+  if (spec.skill >= 0.65) {
+    const teaching = new Map();
+    for (const t of TASKS) for (const m of t.moves) teaching.set(m, (teaching.get(m) || 0) + 1);
+    const practised = db.getMoveStates(student.id)
+      .filter((m) => m.successes > 0)
+      .sort((a, b) => (teaching.get(b.move) || 0) - (teaching.get(a.move) || 0));
+
+    let consolidated = 0;
+    for (const state of practised) {
+      if (consolidated >= 6) break;
+      const candidate = TASKS.find((t) => t.moves.includes(state.move) && !seen.has(t.id) && !state.domains.includes(t.domain));
+      if (!candidate) continue;
+      seen.add(candidate.id);
+      const out = await submitAttempt({
+        studentId: student.id, taskId: candidate.id,
+        response: { ...answerFor(candidate, 'strong'), meta: { hintLevel: 0, confidence: 75, durationMs: 200000 } },
+      });
+      if (out.valid) { done += 1; consolidated += 1; }
+    }
   }
 
   backdate(student.id, spec.missions);
