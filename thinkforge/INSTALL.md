@@ -33,13 +33,17 @@ Anywhere is fine — Documents, Desktop, a USB stick.
 
 ## 3. Start it
 
+**Windows** — double-click **`RUN-THINKFORGE.cmd`**. That one file checks
+everything, sets up the demo data, starts the app and opens it in your browser.
+
 **macOS / Linux** — open a terminal in that folder and run:
 
 ```
-./start.sh
+npm run go
 ```
 
-**Windows** — double-click **`start.cmd`** (or run it from a terminal).
+(`./start.sh` and `start.cmd` still work if you would rather open the browser
+yourself.)
 
 The first run offers to add a demo class of five learners so the teacher view
 has something in it. Say yes the first time; say no if you are setting this up

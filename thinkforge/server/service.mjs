@@ -162,7 +162,7 @@ function offlineFeedback(task, scored) {
 
   const allStrong = criteria.length && weakest.score >= 2;
   const processLevel = allStrong
-    ? `Every criterion is doing work here. The next step up is not more of this — it is going beyond the case: ${task.rubric?.solo?.[4] || 'generalise the move and say where else it would hold'}.`
+    ? `Every criterion is doing work here. The next step up is not more of this — it is going beyond the case: ${(task.rubric?.solo?.[4] || 'generalise the move and say where else it would hold').replace(/\.\s*$/, '')}.`
     : strongest && strongest.score >= 2 && weakest && weakest.score < strongest.score
       ? `Your ${strongest.name.toLowerCase()} carried this. The move that would change it most is the one behind ${weakest.name.toLowerCase()}.`
       : 'Run the move one step at a time rather than writing the whole answer in one pass — the steps are where it goes wrong.';

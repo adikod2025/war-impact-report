@@ -23,7 +23,7 @@ const stage = path.join(dist, name);
 
 /** Everything a running install needs, and nothing else. */
 const INCLUDE_DIRS = ['server', 'client', 'docs', 'scripts'];
-const INCLUDE_FILES = ['README-FIRST.txt', 'README.md', 'INSTALL.md', 'CHANGELOG.md', 'LICENSE', '.env.example', 'start.sh', 'start.cmd', 'check.cmd'];
+const INCLUDE_FILES = ['README-FIRST.txt', 'README.md', 'INSTALL.md', 'CHANGELOG.md', 'LICENSE', '.env.example', 'start.sh', 'start.cmd', 'check.cmd', 'RUN-THINKFORGE.cmd'];
 const RUNTIME_DEPS = ['@anthropic-ai', 'json-schema-to-ts', 'ts-algebra', '@babel'];
 const EXCLUDE_FROM_SCRIPTS = ['release.mjs', 'ui-smoke.mjs'];
 

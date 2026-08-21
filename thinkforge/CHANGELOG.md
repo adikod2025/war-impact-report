@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.6 — one double-click
+
+- **`RUN-THINKFORGE.cmd`**: the only file most people need. It finds the app
+  even if it is one folder down, checks Node, sets up the demo data on first
+  run, starts the server, waits until it genuinely answers, and opens the app
+  in Chrome — or the default browser if Chrome is not installed. `npm run go`
+  does the same on macOS and Linux.
+- Fixed a doubled full stop in the offline feedback text.
+
 ## 1.0.5 — tells you what is wrong
 
 - Added a self-test for "the browser says connection refused": `check.cmd` on

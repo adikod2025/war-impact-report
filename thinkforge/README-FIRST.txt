@@ -5,10 +5,10 @@ EXTRACT THIS ARCHIVE FIRST. Do not run anything from inside the zip:
 Windows unpacks only the file you double-click, and nothing else will be there.
 
   Windows      Right-click the .zip -> "Extract All..." -> open the folder that
-               appears -> if there is another thinkforge folder inside it, open
-               that one too -> double-click  start.cmd
+               appears -> double-click  RUN-THINKFORGE.cmd
+               (that one file does everything and opens your browser)
 
-  macOS/Linux  Unpack it, open a terminal in the folder, run  ./start.sh
+  macOS/Linux  Unpack it, open a terminal in the folder, run  npm run go
 
 Then open http://localhost:4173 in a browser.
 

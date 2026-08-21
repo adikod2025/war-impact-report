@@ -1,6 +1,6 @@
 {
   "name": "thinkforge",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "private": true,
   "type": "module",
   "description": "A web platform that teaches thinking skills to 9-15 year-olds, with AI scoring, tutoring and evolution tracking.",
@@ -15,7 +15,8 @@
     "doctor": "node --no-warnings scripts/doctor.mjs",
     "release": "node scripts/release.mjs",
     "smoke": "node scripts/ui-smoke.mjs",
-    "selftest": "node --no-warnings scripts/selftest.mjs"
+    "selftest": "node --no-warnings scripts/selftest.mjs",
+    "go": "node --no-warnings scripts/run.mjs"
   },
   "optionalDependencies": {
     "@anthropic-ai/sdk": "^0.71.0"
