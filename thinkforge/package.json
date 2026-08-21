@@ -11,12 +11,16 @@
     "start": "node --no-warnings server/index.mjs",
     "dev": "node --no-warnings --watch server/index.mjs",
     "test": "node --no-warnings --test 'tests/**/*.test.mjs'",
-    "seed": "node --no-warnings scripts/seed.mjs"
+    "seed": "node --no-warnings scripts/seed.mjs",
+    "doctor": "node --no-warnings scripts/doctor.mjs",
+    "release": "node scripts/release.mjs",
+    "smoke": "node scripts/ui-smoke.mjs"
   },
   "optionalDependencies": {
     "@anthropic-ai/sdk": "^0.71.0"
   },
   "devDependencies": {
     "playwright-core": "^1.62.1"
-  }
+  },
+  "license": "MIT"
 }
