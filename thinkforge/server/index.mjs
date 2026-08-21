@@ -29,6 +29,16 @@ function loadEnvFile(file = path.join(here, '..', '.env')) {
 }
 loadEnvFile();
 
+/** Read once, so the banner can say which build this is. */
+function readVersion() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(here, '..', 'package.json'), 'utf8')).version || '?';
+  } catch {
+    return '?';
+  }
+}
+export const VERSION = readVersion();
+
 const PORT = Number(process.env.PORT || 4173);
 // Loopback by default: this holds children's work, so it is not on the network
 // unless somebody deliberately puts it there (HOST=0.0.0.0 for a classroom).
@@ -77,7 +87,7 @@ export async function start() {
     ? `AI marking + tutoring on (${ai.model})`
     : `offline mode (${ai.reason}) - deterministic marking and the authored hint ladder`;
   console.log('');
-  console.log(`  Thinkforge is running - ${mode}`);
+  console.log(`  Thinkforge ${VERSION} is running - ${mode}`);
   console.log('');
   console.log(`  Open this in your browser:   http://localhost:${PORT}`);
   console.log(`  If that does not open, try:  http://127.0.0.1:${PORT}`);

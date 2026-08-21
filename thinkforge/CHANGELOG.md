@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.5 — tells you what is wrong
+
+- Added a self-test for "the browser says connection refused": `check.cmd` on
+  Windows, or `node scripts/selftest.mjs`. It starts a copy on a spare port,
+  checks it is reachable on both loopback addresses, and reports the cause —
+  including recognising an older build that exits instantly, and a local
+  firewall blocking the connection.
+- The startup banner now names the version, so it is obvious which build a
+  window is running.
+
 ## 1.0.4 — the server starts on Windows
 
 - **Fixes the server exiting instantly with no output on Windows.** The check

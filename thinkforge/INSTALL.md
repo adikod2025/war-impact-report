@@ -77,7 +77,16 @@ you are in.
 
 ## 5. If something goes wrong
 
-Run the preflight check:
+If the browser says **it cannot connect**, run the self-test — on Windows
+double-click **`check.cmd`**, otherwise:
+
+```
+node scripts/selftest.mjs
+```
+
+It starts a test copy, checks it is reachable, and tells you the cause.
+
+For everything else, run the preflight check:
 
 ```
 node scripts/doctor.mjs

@@ -42,13 +42,14 @@ test('running the server as a command actually starts it and says where to go', 
     const timer = setTimeout(() => resolve(false), 20000);
     child.stdout.on('data', (chunk) => {
       out += chunk.toString();
-      if (out.includes('Thinkforge is running')) { clearTimeout(timer); resolve(true); }
+      if (/Thinkforge \S+ is running/.test(out)) { clearTimeout(timer); resolve(true); }
     });
     child.on('exit', () => { clearTimeout(timer); resolve(false); });
   });
 
   try {
     assert.ok(started, `the server exited or stayed silent instead of starting. Output:\n${out}`);
+    assert.match(out, /Thinkforge \d+\.\d+\.\d+ is running/, 'the banner must name the version, so it is clear which build a window is running');
     assert.match(out, /http:\/\/localhost:\d+/, 'it must print the URL to open');
     assert.match(out, /Ctrl\+C/, 'it must say how to stop it');
 
