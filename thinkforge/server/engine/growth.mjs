@@ -6,7 +6,7 @@
  * returns `available:false` rather than a reassuring number.
  */
 import { hintPenalty } from './scoring.mjs';
-import { LEVEL_CUTS, STRANDS } from '../content/frameworks.mjs';
+import { LEVEL_CUTS, STRANDS, levelForTheta } from '../content/frameworks.mjs';
 import { confidentLevel, standardError } from './elo.mjs';
 
 const pct = (x) => Math.round(Math.max(0, Math.min(1, x)) * 100);
@@ -138,6 +138,10 @@ export function strandProfile(strandStates, attemptsByStrand = {}) {
     const lvl = confidentLevel(st.theta, se, LEVEL_CUTS);
     return {
       strand: s.id, name: s.name, colour: s.colour, claim: s.claim,
+      // `level` is the conservative one — the whole band has cleared the cut, so
+      // it is safe to gate progression on. `pointLevel` is the best current
+      // estimate, which is what a dashboard should show, marked provisional.
+      pointLevel: st.n ? levelForTheta(st.theta) : 0,
       theta: Math.round(st.theta * 100) / 100,
       se: Math.round(se * 100) / 100,
       n: st.n || 0,

@@ -212,10 +212,10 @@ export function listFlaggedAttempts(limit = 50) {
     .all(limit).map(mapAttempt);
 }
 
-export function overrideScore({ attemptId, guardianId, score, note }) {
+export function overrideScore({ attemptId, guardianId = null, score, note = null }) {
   const d = getDb();
   d.prepare('INSERT INTO overrides (attempt_id,guardian_id,score,note,created_at) VALUES (?,?,?,?,?)')
-    .run(attemptId, guardianId, score, note || null, now());
+    .run(attemptId, guardianId ?? null, score, note || null, now());
   d.prepare('UPDATE attempts SET score = ?, adjusted_score = ?, scorer = ?, flagged = 0, confidence = 1 WHERE id = ?')
     .run(score, score, 'human', attemptId);
   return getAttempt(attemptId);

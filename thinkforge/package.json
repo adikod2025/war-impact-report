@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node --no-warnings server/index.mjs",
     "dev": "node --no-warnings --watch server/index.mjs",
-    "test": "node --no-warnings --test tests/",
+    "test": "node --no-warnings --test 'tests/**/*.test.mjs'",
     "seed": "node --no-warnings scripts/seed.mjs"
   },
   "optionalDependencies": {

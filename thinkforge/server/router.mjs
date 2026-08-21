@@ -106,8 +106,8 @@ route('GET', /^\/api\/teacher\/cohort$/, (req, res) => send(res, 200, svc.cohort
 route('POST', /^\/api\/teacher\/override$/, async (req, res) => {
   const body = await readJson(req);
   if (typeof body.score !== 'number' || body.score < 0 || body.score > 1) return send(res, 400, { error: 'score must be 0..1' });
-  const attempt = db.overrideScore(body);
-  return attempt ? send(res, 200, { attempt }) : send(res, 404, { error: 'not_found' });
+  const out = svc.applyOverride(body);
+  return out ? send(res, 200, out) : send(res, 404, { error: 'not_found' });
 });
 
 route('GET', /^\/api\/teacher\/flags$/, (req, res) => send(res, 200, { flags: db.listFlags({}) }));

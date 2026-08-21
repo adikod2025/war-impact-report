@@ -6,8 +6,11 @@ import argument from './tasks/argument.mjs';
 import reverse from './tasks/reverse.mjs';
 import systems from './tasks/systems.mjs';
 import metacog from './tasks/metacog.mjs';
+import transfer from './tasks/transfer.mjs';
 
-export const TASKS = [...analysis, ...synthesis, ...lateral, ...logic, ...argument, ...reverse, ...systems, ...metacog];
+export const TASKS = [...analysis, ...synthesis, ...lateral, ...logic, ...argument, ...reverse, ...systems, ...metacog, ...transfer];
+
+export { CORE_TRANSFER_MOVES } from './tasks/transfer.mjs';
 
 const BY_ID = new Map(TASKS.map((t) => [t.id, t]));
 

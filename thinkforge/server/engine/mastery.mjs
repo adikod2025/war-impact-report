@@ -23,13 +23,19 @@ export function daysBetween(then, now = Date.now()) {
   return Math.max(0, (now - new Date(then).getTime()) / 86400000);
 }
 
-/** How badly this move wants revisiting right now, in [0,1]. */
+/**
+ * How badly this move wants revisiting right now, in [0,1].
+ *
+ * A tent peaking at TARGET_RECALL: something just practised is not urgent
+ * (recall 1 -> 0), something at the edge of forgetting is (recall 0.85 -> 1),
+ * and something already lost falls away again — a move the student can no
+ * longer retrieve needs re-teaching, not a review item.
+ */
 export function reviewUrgency(state, now = Date.now()) {
   if (!state?.lastSeen) return 0;
-  const h = halfLife(state);
-  const r = recall(h, daysBetween(state.lastSeen, now));
-  // peaks at the target recall, falls away on both sides
-  return Math.max(0, 1 - Math.abs(r - TARGET_RECALL) / TARGET_RECALL);
+  const r = recall(halfLife(state), daysBetween(state.lastSeen, now));
+  if (r >= TARGET_RECALL) return Math.max(0, (1 - r) / (1 - TARGET_RECALL));
+  return Math.max(0, r / TARGET_RECALL);
 }
 
 export function nextReviewAt(state, now = Date.now()) {

@@ -24,12 +24,18 @@ export async function readJson(req, limit = 256 * 1024) {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
+    let overflowed = false;
     req.on('data', (c) => {
       size += c.length;
-      if (size > limit) { reject(new Error('payload_too_large')); req.destroy(); return; }
+      if (size > limit) {
+        // Drain rather than destroy: killing the socket loses the 413 response.
+        if (!overflowed) { overflowed = true; chunks.length = 0; reject(new Error('payload_too_large')); }
+        return;
+      }
       chunks.push(c);
     });
     req.on('end', () => {
+      if (overflowed) return;
       if (!chunks.length) return resolve({});
       try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); } catch (e) { reject(e); }
     });

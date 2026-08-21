@@ -18,9 +18,13 @@ export async function teacher() {
           h('td', {}, h('strong', {}, s.displayName), h('br'), h('small', {}, `age ${s.age}`)),
           s.strands.map((x) => h('td', {}, h('div', {
             class: 'heat',
-            style: { background: HEAT[x.level] || HEAT[0], color: x.level > 1 ? '#fff' : '#16150f' },
-            title: `${x.strand}: level ${x.level} (theta ${x.theta}, ${x.n} missions)`,
-          }, String(x.level)))),
+            style: {
+              background: HEAT[x.pointLevel ?? x.level] || HEAT[0],
+              color: (x.pointLevel ?? x.level) > 1 ? '#fff' : '#16150f',
+              opacity: x.settled === false ? '0.55' : '1',
+            },
+            title: `${x.strand}: level ${x.pointLevel ?? x.level}${x.settled === false ? ' (provisional — not enough evidence to settle)' : ''} · theta ${x.theta} over ${x.n} missions`,
+          }, String(x.pointLevel ?? x.level)))),
           h('td', {}, String(s.attempts)),
           h('td', {}, fmtDate(s.lastActive)))) : h('tr', {}, h('td', { colspan: '10', class: 'muted' }, 'No learners yet.')))))),
 

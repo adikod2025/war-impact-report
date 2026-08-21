@@ -107,12 +107,13 @@ export function levelPips(level, colour) {
     [0, 1, 2, 3, 4].map((i) => h('i', { class: i < level ? 'on' : '' })));
 }
 
-export function dial({ name, colour, theta, se, level, levelName, n }) {
+export function dial({ name, colour, theta, se, level, pointLevel, settled, levelName, n }) {
+  const shown = pointLevel ?? level;
   const toPct = (t) => Math.max(0, Math.min(100, ((t + 2) / 4.5) * 100));
   return h('div', { class: 'dial', style: { '--strand': colour } },
     h('div', { class: 'row between' },
       h('strong', {}, name),
-      h('span', { class: 'tag' }, `Level ${level} · ${levelName}`)),
+      h('span', { class: 'tag' }, `Level ${shown} · ${LEVEL_NAMES[shown]}${settled === false && n ? ' (provisional)' : ''}`)),
     h('div', { class: 'bar' },
       h('div', { class: 'band', style: { left: `${toPct(theta - se)}%`, width: `${Math.max(2, toPct(theta + se) - toPct(theta - se))}%` } }),
       h('div', { class: 'fill', style: { width: `${toPct(theta)}%`, opacity: .85 } })),

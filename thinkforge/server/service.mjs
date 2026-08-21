@@ -355,6 +355,40 @@ export async function takeSnapshot(studentId) {
 
 /* ---------------------------------------------------------------- teacher */
 
+/**
+ * A human score replaces the machine's, and the ability estimate is rebuilt
+ * rather than patched: the strand is replayed from the starting prior through
+ * every attempt in order. Slower than reversing one update, but it is
+ * auditable, and a class-sized history is tiny.
+ */
+export function recomputeStrand(studentId, strand) {
+  const attempts = db.listAttempts(studentId).filter((a) => a.strand === strand);
+  let theta = START_THETA;
+  let n = 0;
+  for (const a of attempts) {
+    const u = eloUpdate({
+      theta,
+      difficulty: a.difficulty ?? 0,
+      score: a.adjustedScore ?? a.score ?? 0,
+      studentN: n,
+      itemN: 9999,                       // item difficulty is not rewritten by a replay
+      confidence: a.confidence ?? 1,
+    });
+    theta = u.theta;
+    n += 1;
+  }
+  db.upsertStrandState(studentId, strand, theta, n);
+  return { theta, n, level: levelForTheta(theta) };
+}
+
+export function applyOverride({ attemptId, guardianId, score, note }) {
+  const before = db.getAttempt(attemptId);
+  if (!before) return null;
+  const attempt = db.overrideScore({ attemptId, guardianId, score, note });
+  const ability = recomputeStrand(before.studentId, before.strand);
+  return { attempt, ability, previousScore: before.score };
+}
+
 export function cohort() {
   const students = db.listStudents();
   return {
@@ -365,7 +399,7 @@ export function cohort() {
         ...s,
         attempts: attempts.length,
         strands: strandProfile(states.length ? states : STRANDS.map((x) => ({ strand: x.id, theta: START_THETA, n: 0 })), {})
-          .map((p) => ({ strand: p.strand, level: p.level, theta: p.theta, n: p.n })),
+          .map((p) => ({ strand: p.strand, level: p.level, pointLevel: p.pointLevel, settled: p.settled, theta: p.theta, se: p.se, n: p.n })),
         lastActive: attempts.length ? attempts[attempts.length - 1].createdAt : null,
         flagged: attempts.filter((a) => a.flagged).length,
       };
