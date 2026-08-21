@@ -60,9 +60,11 @@ and a one-sentence rationale. Requiring the span is what stops the model from
 hallucinating quality that isn't in the text — if it cannot quote it, it cannot
 score it.
 
-*AI path:* one call, temperature 0, JSON-schema-constrained output, containing
-the rubric anchors, the task's SOLO exemplars, the misconception list, and the L1
-feature vector. The model never sees other students' work or the student's name.
+*AI path:* one call with a JSON-schema-constrained output, containing the rubric
+anchors, the task's SOLO exemplars, the misconception list, and the L1 feature
+vector. No sampling parameters are sent — the current Claude models reject
+`temperature` — so consistency comes from the constrained schema, the written
+anchors and a low effort setting instead. The model never sees other students' work or the student's name.
 
 *Offline path:* a transparent linguistic estimator over the L1 features —
 slot completeness, distinct-concept count, causal/conditional connective density

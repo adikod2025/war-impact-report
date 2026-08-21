@@ -61,21 +61,31 @@ function textOf(message) {
  * determinism comes from a constrained output schema and low effort rather
  * than from sampling parameters.
  */
-export async function call({ system, messages, schema = null, effort = 'medium', maxTokens = 4000, thinking = 'adaptive' }) {
-  const c = await loadClient();
-  if (!c) return { ok: false, reason: unavailableReason };
-
+export function buildRequest({ system, messages, schema = null, effort = 'medium', maxTokens = 4000, thinking = 'adaptive', model = MODEL }) {
   const body = {
-    model: MODEL,
+    model,
     max_tokens: maxTokens,
     system,
     messages,
     output_config: { effort },
   };
+  // No `temperature`: the Opus/Sonnet 5 family rejects sampling parameters.
+  // Determinism comes from a constrained output schema and low effort instead.
   if (thinking) body.thinking = { type: 'adaptive' };
   if (schema) body.output_config.format = { type: 'json_schema', schema };
+  return body;
+}
 
-  const useBeta = /^claude-(opus-5|fable-5)/.test(MODEL);
+export function usesRefusalFallback(model = MODEL) {
+  return /^claude-(opus-5|fable-5)/.test(model);
+}
+
+export async function call({ system, messages, schema = null, effort = 'medium', maxTokens = 4000, thinking = 'adaptive' }) {
+  const c = await loadClient();
+  if (!c) return { ok: false, reason: unavailableReason };
+
+  const body = buildRequest({ system, messages, schema, effort, maxTokens, thinking });
+  const useBeta = usesRefusalFallback();
   let message;
   try {
     message = useBeta

@@ -116,13 +116,16 @@ export async function session() {
   const plan = await api.get(`/api/students/${store.studentId}/session`);
   return [
     h('div', { class: 'row between' },
-      h('div', {}, h('h1', {}, 'Today’s session'), h('p', { class: 'muted' }, 'Three beats, about twenty minutes. Warm up, learn a move, then use it on something real.')),
+      h('div', {}, h('h1', {}, 'Today’s session'),
+        h('p', { class: 'muted' }, plan.beats.length === 3
+          ? 'Three beats, about twenty minutes. Warm up, learn a move, then use it on something real.'
+          : 'Two beats today — nothing is due for review yet, so you go straight to learning a move and using it.')),
       aiBadge(store.status)),
     h('div', { class: 'spacer' }),
     h('div', { class: 'grid three' }, plan.beats.map((b, i) => beatCard(b, i))),
     h('div', { class: 'spacer' }),
     h('div', { class: 'card tint' },
-      h('h3', {}, 'Why these three?'),
+      h('h3', {}, `Why these ${plan.beats.length === 3 ? 'three' : 'two'}?`),
       h('p', { class: 'muted' }, 'Missions are picked so you have roughly a 75% chance of succeeding — hard enough to be worth doing, not so hard you stall. Reviews come back when you are about to forget them, not on a fixed timetable.')),
   ];
 }

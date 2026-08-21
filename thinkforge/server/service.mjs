@@ -87,15 +87,17 @@ export function planSession(studentId) {
   const used = new Set();
   const chosen = [];
 
+  const metBefore = new Set(history.flatMap((h) => h.moves || []));
+
   const warmup = due.length ? pick((r) => r.task.moves.some((m) => due.includes(m)), used) : null;
-  if (warmup) { used.add(warmup.task.id); chosen.push({ beat: 'warm-up', why: 'A move that is due for retrieval.', ...warmup }); }
+  if (warmup) { used.add(warmup.task.id); chosen.push({ beat: 'warm-up', why: 'A move that is due for retrieval — you are just about to forget it.', ...warmup }); }
 
   const core = pick(() => true, used);
-  if (core) { used.add(core.task.id); chosen.push({ beat: 'move of the day', why: reasonFor(core), ...core }); }
+  if (core) { used.add(core.task.id); chosen.push({ beat: 'move of the day', why: reasonFor(core, metBefore), ...core }); }
 
   const mission = pick((r) => !chosen.some((c) => c.task.strand === r.task.strand), used)
     || pick(() => true, used);
-  if (mission) { used.add(mission.task.id); chosen.push({ beat: 'mission', why: reasonFor(mission), ...mission }); }
+  if (mission) { used.add(mission.task.id); chosen.push({ beat: 'mission', why: reasonFor(mission, metBefore), ...mission }); }
 
   return {
     student,
@@ -108,10 +110,12 @@ export function planSession(studentId) {
   };
 }
 
-function reasonFor(r) {
+function reasonFor(r, metBefore = new Set()) {
   const parts = [];
+  const isNew = r.task.moves.every((m) => !metBefore.has(m));
   if (r.parts.review > 0.4) parts.push('due for review');
-  if (r.parts.novelty === 1) parts.push('this move in a domain you have not tried it in');
+  if (isNew) parts.push('a move you have not met yet');
+  else if (r.parts.novelty === 1) parts.push('this move in a domain you have not used it in');
   if (r.parts.deficit > 0.5) parts.push('your weakest strand right now');
   if (r.parts.starvation > 0.7) parts.push('this strand has been left alone too long');
   if (!parts.length) parts.push(`pitched at about a ${Math.round(r.p * 100)}% chance of success`);

@@ -44,7 +44,7 @@ export function scriptedTurn({ task, rung, studentMessage, text }) {
 /**
  * @returns {{reply:string, element:string, rung:number, mode:'ai'|'scripted'|'safety', escalate?:object}}
  */
-export async function tutorTurn({ task, text, scoreSummary, history = [], studentMessage = '', age = 12, independence = 0.5, attempts = 1, hintsSeen = 0 }) {
+export async function tutorTurn({ task, text, scoreSummary, history = [], studentMessage = '', age = 12, independence = 0.5, attempts = 1, hintsSeen = 0, caller = call }) {
   const turnsUsed = history.filter((h) => h.role === 'tutor').length;
   if (turnsUsed >= MAX_TURNS) {
     return {
@@ -68,7 +68,7 @@ export async function tutorTurn({ task, text, scoreSummary, history = [], studen
 
   let result;
   try {
-    result = await call({
+    result = await caller({
       system: tutorSystem({ age, rung }),
       messages: [{
         role: 'user',

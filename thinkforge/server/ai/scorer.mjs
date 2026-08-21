@@ -7,14 +7,18 @@ import { call } from './client.mjs';
 import { redactPII } from './safety.mjs';
 import { scorerSystem, scorerUser, SCORER_SCHEMA, EQUIVALENCE_SCHEMA } from './prompts.mjs';
 
-export function makeAiRubric() {
+/**
+ * @param {object} [deps] injectable caller, so the marking contract can be
+ *   tested without a network round trip (tests/ai.test.mjs).
+ */
+export function makeAiRubric({ caller = call } = {}) {
   return async function aiRubric(task, response, features) {
     const rawText = task.mode === 'structured'
       ? Object.entries(response.fields || {}).map(([k, v]) => `[${k}] ${v}`).join('\n')
       : (response.text || response.rule || '');
     const { text } = redactPII(rawText);
 
-    const result = await call({
+    const result = await caller({
       system: scorerSystem(),
       messages: [{ role: 'user', content: scorerUser({ task, response, features, text }) }],
       schema: SCORER_SCHEMA,

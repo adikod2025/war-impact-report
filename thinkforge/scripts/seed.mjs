@@ -115,6 +115,27 @@ function levelFor(skill, i) {
   return 'weak';
 }
 
+/**
+ * Spread the history back over the last six weeks so the review scheduler and
+ * the growth timeline have something to work with — everything happening in the
+ * same second makes both look broken.
+ */
+function backdate(studentId, missions) {
+  const d = db.getDb();
+  const attempts = d.prepare('SELECT id FROM attempts WHERE student_id = ? ORDER BY created_at').all(studentId);
+  attempts.forEach((row, i) => {
+    const daysAgo = 42 - Math.round((i / Math.max(1, attempts.length - 1)) * 40);
+    d.prepare('UPDATE attempts SET created_at = ? WHERE id = ?')
+      .run(new Date(Date.now() - daysAgo * 86400000).toISOString(), row.id);
+  });
+  const moves = d.prepare('SELECT move FROM move_state WHERE student_id = ?').all(studentId);
+  moves.forEach((row, i) => {
+    const daysAgo = 1 + ((i * 7) % Math.max(2, Math.round(missions / 2)));
+    d.prepare('UPDATE move_state SET last_seen = ? WHERE student_id = ? AND move = ?')
+      .run(new Date(Date.now() - daysAgo * 86400000).toISOString(), studentId, row.move);
+  });
+}
+
 const guardian = db.createGuardian({ name: 'Ms Rowe', kind: 'teacher' });
 console.log(`Seeding into ${process.env.THINKFORGE_DB || 'data/thinkforge.db'}`);
 
@@ -149,6 +170,7 @@ for (const spec of LEARNERS) {
     if (out.valid) done += 1;
   }
 
+  backdate(student.id, spec.missions);
   await takeSnapshot(student.id);
   const profile = db.getStrandStates(student.id);
   console.log(`  ${student.displayName.padEnd(6)} age ${student.age}  ${done} missions  strands touched: ${profile.length}`);
