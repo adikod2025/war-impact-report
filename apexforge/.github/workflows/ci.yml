@@ -1,0 +1,72 @@
+name: ApexForge ADFMS CI
+
+# CI must fail if WF-SMOKE-01 or core unit tests go red (Pitfall 7 control).
+# It is not advisory: it is the mechanism that stops invariant erosion.
+
+on:
+  push:
+    paths: ["apexforge/**"]
+  pull_request:
+    paths: ["apexforge/**"]
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: apexforge
+
+jobs:
+  verify:
+    name: Verification gate (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]"
+
+      - name: Verify signed Policy Package
+        run: |
+          python -c "
+          from apexforge.policy.package import load_policy
+          pkg = load_policy()
+          assert pkg.verified
+          print('policy', pkg.policy_version, pkg.digest)
+          "
+
+      - name: Frozen contract tests
+        run: python -m pytest tests/test_contracts.py -q
+
+      - name: WF-SMOKE-01
+        run: python -m pytest -m smoke -q
+
+      - name: ADR-001 invariants
+        run: python -m pytest -m invariant -q
+
+      - name: Full suite with coverage gate
+        run: python -m pytest -q --cov=apexforge --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+
+      - name: Performance budgets
+        run: python -m pytest -m perf -q
+
+      - name: Simulation scenarios
+        run: python -m pytest -m sim -q
+
+      - name: Upload coverage
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: apexforge/coverage.xml
+          if-no-files-found: warn

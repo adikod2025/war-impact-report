@@ -1,0 +1,61 @@
+# ApexForge ADFMS - default configuration.
+#
+# Every tunable parameter in the system is declared here. Modules must not
+# carry hard-coded magic numbers (Pitfall 5: Policy & Configuration Sprawl).
+# Any value may be overridden by an APEXFORGE_ prefixed environment variable
+# using __ as the nesting separator, e.g.:
+#   APEXFORGE_EDGE__MAX_SPEED_MPS=12.0
+schema_version: "1.0"
+
+edge:
+  swarm_level: COLLABORATIVE      # TELEOP | INDIVIDUAL | COLLABORATIVE | PREDICTIVE
+  rtb_battery_threshold: 0.25     # fraction; below this the agent returns to base
+  tick_budget_ms: 80.0            # p99 decision-loop budget (Blueprint 2.1)
+  hums_interval_ticks: 1
+  default_role: search            # role assumed when nobody has assigned one
+  search_pattern: lawnmower
+  track_confidence: 0.85          # confidence stamped on a locally decided track
+  search_confidence: 0.7
+  rtb_confidence: 1.0             # returning to base is never a low-confidence act
+  run_max_ticks: 100
+  run_delay_s: 0.1
+
+orchestrator:
+  min_readiness: 0.6              # assets below this are not planned against
+  max_trackers: 2                 # assurance rule: more requires human approval
+
+assurance:
+  evidence_timeout_s: 30.0        # stale evidence becomes UNKNOWN, never PASS
+  aggregation_budget_ms: 250.0    # Blueprint 2.1 budget under 20% loss
+
+mro:
+  critical_threshold_h: 8.0       # RUL below this is "critical"
+  healthy_multiplier: 3.0         # RUL above threshold*this needs no work order
+  history_capacity: 512           # per-platform HUMS records retained by the twin
+  history_window: 50              # records fed to the RUL estimator
+  convergence_sla_s: 30.0         # twin-vs-source convergence SLA (Roadmap L3)
+  convergence_tolerance: 1.0e-6
+
+fleet:
+  default_min_readiness: 0.7
+  # Fleet-scale version of the assurance staleness question: an asset not heard
+  # from within this horizon is reported stale rather than assumed healthy.
+  stale_after_s: 30.0
+
+mesh:
+  seed: 20260822                  # scenario reproducibility is a declared property,
+                                  # not a module default (see docs/design-notes/mesh.md)
+  store_and_forward_capacity: 1000
+  max_delivery_attempts: 5
+  packet_loss: 0.0                # 0..1, raised by DDIL scenarios
+  blackout_s: 0.0
+
+workflows:
+  human_gate_timeout_s: 300.0     # LOI-5 / critical-MRO default wait
+  on_timeout: hold                # hold | abort - never "approve"
+  escalation_chain:
+    - mission_commander
+    - duty_officer
+
+interop:
+  max_loi: 3                      # Pitfall 6: current accepted LOI ceiling

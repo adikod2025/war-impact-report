@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "apexforge"
+version = "1.0.0"
+description = "ApexForge ADFMS - Advanced Drone Fleet Management System (Layer 1 baseline)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary - Controlled, Authorized Development Use Only" }
+dependencies = [
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+]
+
+[tool.setuptools.packages.find]
+include = ["apexforge*"]
+
+[tool.setuptools.package-data]
+apexforge = ["config/*.yaml", "policy/*.yaml", "policy/*.sig"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short --strict-markers"
+markers = [
+    "smoke: canonical WF-SMOKE-01 workflow, must stay green forever",
+    "contract: frozen interface contract tests (Pitfall 1 control)",
+    "invariant: ADR-001 invariant preservation tests (Pitfall 7 control)",
+    "perf: performance budget tests (edge tick p99 <= 80ms)",
+    "sim: multi-agent simulation scenarios (Pitfall 2 control)",
+]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["apexforge"]
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
