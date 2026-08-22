@@ -111,6 +111,10 @@ and [`docs/RISK_REGISTER.md`](docs/RISK_REGISTER.md) for what remains open.
 | Document | What it settles |
 |---|---|
 | [ADR-001](docs/ADR-001-orchestration.md) | The orchestration hierarchy, and how each constraint is enforced in code |
+| [ADR-002](docs/ADR-002-pre-execution-assurance.md) | Pre-execution assurance on every dispatch; authorisation is context, not a property of the judged |
+| [ADR-003](docs/ADR-003-low-battery-custody.md) 🟡 | **Awaiting decision** — energy reserve vs. track custody |
+| [ADR-004](docs/ADR-004-custody-relinquish.md) 🟡 | **Awaiting decision** — custody relinquish after a partition heals |
+| [`docs/AUDIT_BACKLOG.md`](docs/AUDIT_BACKLOG.md) | Where the next adversarial audit should attack |
 | [`docs/CONTRACTS.md`](docs/CONTRACTS.md) | The frozen interface control document |
 | [`docs/WORKFLOW_CATALOG.md`](docs/WORKFLOW_CATALOG.md) | WF-01 … WF-10, three levels each |
 | [`docs/ACCEPTED_LAYER.md`](docs/ACCEPTED_LAYER.md) | The current LOI and autonomy ceilings |

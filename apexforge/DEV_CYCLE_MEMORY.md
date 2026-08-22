@@ -444,3 +444,43 @@ not disturb the published contract.
 That is a separate change needing its own ADR, and it is now the largest
 remaining assurance-surface gap.
 
+### Entry 011 — Two reserved decisions written up, R-21 queued for audit
+**Phase:** Post-audit · **Owner:** lead · **Outputs:** ADR-003, ADR-004, AUDIT_BACKLOG.md
+
+Both remaining autonomy-behaviour items were drafted as **decision documents,
+status PROPOSED**. Neither decides anything: ADR-001 reserves autonomy changes
+for named human deciders, and the whole reason the build reproduced these
+behaviours rather than "fixing" them is that they are judgement calls.
+
+**ADR-003 (R-15) — energy reserve vs. track custody.** The track branch is
+evaluated before the energy branch, so a platform holding a target flies to
+exhaustion. Verified: `battery=0.05` with a target yields `track`; without a
+target, `rtb`. The reserve is enforced only for a platform with nothing to do.
+Four options; recommends the branch reorder, because the custody handoff then
+falls out of the deconfliction that already exists — the returning platform
+advertises `rtb`, and a peer picks the track up on its next tick. No new
+protocol.
+
+**ADR-004 (R-21) — custody relinquish after a heal.** `peer_owns_track` is
+guarded by `prior_role != "track"`, so a platform already tracking never
+re-examines. Correct during a partition; wrong when it ends. Four options;
+recommends a deterministic lowest-platform-id tie-break — no new state, no
+clock, converges in one tick, cannot oscillate, and degrades correctly (hearing
+nobody means keeping custody). Notes that it needs the advertiser's id on the
+role advertisement, which is an additive contract change worth flagging.
+
+**A new artefact: `docs/AUDIT_BACKLOG.md`.** The register records risks and
+owners; the backlog records *where to attack next*, including attacks nobody
+has attempted. R-21 is **AB-01**, and the entry makes the useful distinction:
+the defect is pinned, but only at one seed in one scenario. The class is
+unattacked — partial partitions, repeated heals, a heal mid-acquisition, and
+whether some seed drops custody entirely rather than duplicating it, which
+would be worse and which nobody has looked for.
+
+The backlog also records the eight **attack classes this project actually
+proved prone to** (denylists where allowlists were needed; top-level checks on
+nested data; presence mistaken for authority; self-certification; fully tested
+and entirely unreachable; the gate that never ran; documents drifting ahead of
+code; behaviour visible only after a transient ends) and a **graduated**
+section, so that "attacked and clean" is never mistaken for "never looked at".
+
