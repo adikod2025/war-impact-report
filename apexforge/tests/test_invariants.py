@@ -30,6 +30,7 @@ from apexforge.contracts import (
     ContractViolation,
     HumanDecision,
     MacroAction,
+    Objective,
     Verdict,
     WorkflowEvent,
 )
@@ -733,3 +734,172 @@ def test_a_caller_cannot_overwrite_the_fields_emit_event_stamps(reserved):
 def test_whitespace_is_not_attribution(blank):
     with pytest.raises(MissingMandatoryField):
         emit_event("act", audit=AuditLog(), platform_id=blank, action_id="a1")
+
+
+# ===========================================================================
+# ADR-002 — pre-execution assurance runs against every dispatch (R-29)
+# ===========================================================================
+
+
+def _orchestrator(n=4, readiness=0.9):
+    from apexforge.orchestrator.core import Asset, FleetRegistry, SwarmOrchestrator
+
+    reg = FleetRegistry()
+    for i in range(n):
+        reg.register(Asset(id=f"UAV-{i:03d}", readiness=readiness))
+    return SwarmOrchestrator(reg)
+
+
+def test_the_dispatch_path_actually_consults_the_fabric():
+    """R-29: before ADR-002, `validate_actions` had no production caller.
+
+    The failure this guards against is subtle: the fabric was thoroughly
+    unit-tested, so its rules looked alive. They simply never ran against a
+    real dispatch. This asserts the wiring exists at all.
+    """
+    orch = _orchestrator()
+    assert hasattr(orch.assurance, "fabric"), "the Orchestrator has no fabric"
+
+    calls = []
+    real = orch.assurance.fabric.validate_actions
+
+    def spy(actions=None, context=None):
+        calls.append(list(actions or []))
+        return real(actions, context)
+
+    orch.assurance.fabric.validate_actions = spy
+    orch.assign(Objective(name="ISR-1", area={"lat": 24.7, "lon": 46.7, "radius_m": 5000}))
+    assert calls, "assign() dispatched without consulting the fabric"
+
+
+def test_every_built_in_rule_is_installed_on_the_dispatch_path():
+    installed = {
+        getattr(r, "name", type(r).__name__) for r in _orchestrator().assurance.fabric.rules
+    }
+    assert {
+        "max_trackers",
+        "known_role",
+        "no_duplicate_assignment",
+        "policy_version",
+    } <= installed
+
+
+def test_the_duplicate_assignment_rule_blocks_a_real_dispatch():
+    """Previously dormant. Two conflicting roles for one platform must not ship.
+
+    Whichever arrived last would silently win at the edge — the definition of
+    a silent failure.
+    """
+    orch = _orchestrator()
+    conflicting = [
+        MacroAction(platform_id="UAV-000", role="search"),
+        MacroAction(platform_id="UAV-000", role="track"),
+    ]
+    verdict, reason, evidence = orch.assurance.evaluate(conflicting)
+    assert verdict is Verdict.FAIL
+    assert reason == "no_duplicate_assignment"
+    assert evidence.checks["no_duplicate_assignment"] is False
+
+
+def test_the_policy_version_rule_blocks_a_real_dispatch():
+    """Previously dormant. Actions built against another policy must not ship."""
+    orch = _orchestrator()
+    stale = [
+        MacroAction(
+            platform_id="UAV-000", role="search", params={"policy_version": "0.0.1-stale"}
+        )
+    ]
+    verdict, reason, evidence = orch.assurance.evaluate(stale)
+    assert verdict is Verdict.FAIL
+    assert reason == "policy_version"
+    assert evidence.checks["policy_version"] is False
+
+
+def test_a_registered_rule_changes_real_dispatch_behaviour():
+    """The extension point must be real, not only test-visible."""
+    from apexforge.assurance.fabric import AssuranceRule
+
+    class RefuseEverything(AssuranceRule):
+        name = "refuse_everything"
+
+        def evaluate(self, actions, context):
+            return False, f"{self.name}:always"
+
+    orch = _orchestrator()
+    orch.assurance.fabric.register_rule(RefuseEverything())
+    with pytest.raises(RuntimeError, match="refuse_everything"):
+        orch.assign(Objective(name="ISR-1", area={"radius_m": 1000}))
+
+
+def test_all_failing_rules_are_reported_not_just_the_first():
+    """A caller fixing one violation should not have to re-run for the next."""
+    orch = _orchestrator()
+    bad = [
+        MacroAction(platform_id="UAV-000", role="track"),
+        MacroAction(platform_id="UAV-000", role="search"),
+        MacroAction(platform_id="UAV-001", role="track"),
+        MacroAction(
+            platform_id="UAV-002", role="track", params={"policy_version": "0.0.1-stale"}
+        ),
+    ]
+    _verdict, _reason, evidence = orch.assurance.evaluate(bad)
+    failed = set(evidence.failed_checks())
+    assert {"max_trackers", "no_duplicate_assignment", "policy_version"} <= failed
+
+
+def test_the_published_refusal_token_survived_the_rewiring():
+    """The handoff's own test matches on this string. It must not drift."""
+    orch = _orchestrator(n=5)
+    with pytest.raises(RuntimeError, match="too_many_trackers"):
+        orch.assign(Objective(name="TrackHeavy", area={}, required_roles=["track"] * 5))
+
+
+def test_an_unappealable_refusal_cannot_be_approved_away():
+    """ADR-002: a malformed plan is a defect, not a policy limit.
+
+    No human decision, however well attributed, may authorise a plan whose
+    roles conflict — that would turn a bug into something someone signs for.
+    """
+    from apexforge.assurance.fabric import AssuranceRule
+
+    class AlwaysConflict(AssuranceRule):
+        name = "no_duplicate_assignment"
+
+        def evaluate(self, actions, context):
+            return False, f"{self.name}:conflicting UAV-000->['search', 'track']"
+
+    orch = _orchestrator()
+    orch.assurance.fabric.register_rule(AlwaysConflict())
+
+    decision = HumanDecision(
+        workflow_instance_id="wf-appeal",
+        step_id="excess_trackers",
+        operator_id="mission_commander",
+        approved=True,
+        rationale="attempting to authorise a malformed plan",
+    )
+    with pytest.raises(RuntimeError, match="no_duplicate_assignment"):
+        orch.assign_with_approval(
+            Objective(name="ISR-1", area={"radius_m": 1000}), decision=decision
+        )
+
+
+def test_authorisation_is_context_never_a_property_of_the_actions():
+    """ADR-002 closes the circularity: an action cannot vouch for itself.
+
+    The Orchestrator stamps `requires_human_approval=True` on every action once
+    an approval is recorded. If the tracker rule honoured that flag, an
+    over-limit batch would clear the limit by virtue of being over-limit.
+    """
+    orch = _orchestrator()
+    self_certifying = [
+        MacroAction(platform_id=f"UAV-{i:03d}", role="track", requires_human_approval=True)
+        for i in range(5)
+    ]
+    verdict, reason, _ = orch.assurance.evaluate(self_certifying)
+    assert verdict is Verdict.FAIL, "self-certifying actions cleared the tracker limit"
+    assert reason == "too_many_trackers"
+
+    # ...and the same batch passes only when the caller asserts the authority.
+    verdict, _reason, _ = orch.assurance.evaluate(self_certifying, human_authorised=True)
+    assert verdict is Verdict.PASS

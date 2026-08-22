@@ -347,8 +347,20 @@ def test_assurance_evidence_is_reconstructable():
         [MacroAction(platform_id=f"U{i}", role="track") for i in range(3)]
     )
     assert verdict is Verdict.FAIL and reason == "too_many_trackers"
-    assert evidence.failed_checks() == ["tracker_limit"]
-    assert evidence.detail == {"trackers": 3, "max_trackers": 2, "n_actions": 3}
+    # Since ADR-002 the evidence names every rule that ran, not only the one
+    # that failed - an after-action review wants the whole picture.
+    assert set(evidence.failed_checks()) == {"max_trackers", "tracker_limit"}
+    assert set(evidence.checks) >= {
+        "max_trackers",
+        "known_role",
+        "no_duplicate_assignment",
+        "policy_version",
+        "tracker_limit",
+    }
+    assert evidence.detail["trackers"] == 3
+    assert evidence.detail["max_trackers"] == 2
+    assert evidence.detail["n_actions"] == 3
+    assert any("max_trackers:" in r for r in evidence.detail["reasons"])
     assert evidence.policy_version == ACTIVE_POLICY_VERSION
 
 
@@ -396,9 +408,17 @@ def test_assurance_resolves_the_declared_human_gate():
     assert gate["on_timeout"] != "approve"
 
 
-def test_assurance_refuses_to_guess_a_gate_for_an_unknown_reason():
-    with pytest.raises(PolicyError, match="no human gate is declared"):
-        RuntimeAssurance().gate_for("some_new_reason")
+def test_a_reason_with_no_declared_gate_is_unappealable_not_an_error():
+    """ADR-002: no gate means no appeal, not a missing configuration.
+
+    A conflicting assignment is a defect in the plan. Offering a human the
+    chance to approve one would turn a bug into a decision they have to sign
+    for, so the refusal is simply final.
+    """
+    assurance = RuntimeAssurance()
+    assert assurance.gate_for("no_duplicate_assignment") is None
+    assert assurance.is_appealable("no_duplicate_assignment") is False
+    assert assurance.is_appealable("too_many_trackers") is True
 
 
 # ===========================================================================

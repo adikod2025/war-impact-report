@@ -159,14 +159,20 @@ class AssuranceRule:
 
 
 class MaxTrackersRule(AssuranceRule):
-    """Custody concentration limit: no more untracked-by-a-human trackers
-    than ``orchestrator.max_trackers`` allows.
+    """Custody concentration limit: no more trackers than
+    ``orchestrator.max_trackers`` allows, absent recorded human authority.
 
     Excess trackers are *not* forbidden outright - policy declares an
-    ``excess_trackers`` human gate. So the rule passes when the surplus
-    assignments carry ``requires_human_approval``, and fails when they do not.
-    That keeps the gate meaningful instead of turning it into a hard ceiling
-    the Orchestrator would route around.
+    ``excess_trackers`` human gate. The rule therefore passes when the caller
+    presents ``human_authorised`` in the rule **context**, and fails otherwise.
+
+    Authorisation is deliberately read from the context and never from the
+    actions. An earlier version exempted any tracker carrying
+    ``requires_human_approval=True``, while the Orchestrator stamps that flag
+    on every action once an approval is recorded - so an over-limit batch could
+    satisfy the limit by virtue of having been over-limit. An action cannot
+    vouch for its own authorisation; only the caller holding the recorded
+    ``HumanDecision`` can (ADR-002).
     """
 
     name = "max_trackers"
@@ -185,13 +191,18 @@ class MaxTrackersRule(AssuranceRule):
         limit = int(limit)
 
         trackers = [a for a in actions if _role_of(a) == "track"]
-        ungated = [a for a in trackers if not getattr(a, "requires_human_approval", False)]
-        if len(ungated) <= limit:
+        if len(trackers) <= limit:
             return True, "ok"
-        offenders = sorted({_platform_of(a) for a in ungated})
+
+        # Over the limit. Only recorded human authority carried on the context
+        # can clear it - see the class docstring for why not the actions.
+        if context.get("human_authorised"):
+            return True, "ok"
+
+        offenders = sorted({_platform_of(a) for a in trackers})
         return (
             False,
-            f"{self.name}:{len(ungated)}_ungated_trackers>{limit} {offenders}",
+            f"{self.name}:{len(trackers)}_trackers>{limit} {offenders}",
         )
 
 

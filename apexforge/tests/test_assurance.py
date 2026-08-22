@@ -419,11 +419,28 @@ def test_max_trackers_rule_fails_beyond_policy(fabric):
     assert "UAV-0" in reason
 
 
-def test_max_trackers_rule_accepts_a_human_gated_surplus(fabric):
-    """Policy declares an `excess_trackers` human gate; honouring it passes."""
-    actions = [macro(f"UAV-{i}", "track") for i in range(2)]
-    actions.append(macro("UAV-9", "track", requires_human_approval=True))
-    assert MaxTrackersRule().evaluate(actions, fabric.rule_context())[0] is True
+def test_max_trackers_rule_accepts_a_surplus_authorised_on_the_context(fabric):
+    """Policy declares an `excess_trackers` human gate; honouring it passes.
+
+    Authority arrives on the rule **context**, set by the caller that holds the
+    recorded HumanDecision - never off the actions themselves (ADR-002).
+    """
+    actions = [macro(f"UAV-{i}", "track") for i in range(3)]
+    ctx = dict(fabric.rule_context(), human_authorised=True)
+    assert MaxTrackersRule().evaluate(actions, ctx)[0] is True
+
+
+def test_an_action_cannot_vouch_for_its_own_authorisation(fabric):
+    """The circularity ADR-002 closes.
+
+    The Orchestrator stamps `requires_human_approval=True` on every action once
+    an approval is recorded. If the rule honoured that flag, an over-limit
+    batch would satisfy the limit by virtue of having been over-limit.
+    """
+    actions = [macro(f"UAV-{i}", "track", requires_human_approval=True) for i in range(5)]
+    ok, reason = MaxTrackersRule().evaluate(actions, fabric.rule_context())
+    assert ok is False, "a self-certifying action cleared the tracker limit"
+    assert "5_trackers>" in reason
 
 
 def test_max_trackers_rule_fails_closed_when_no_limit_is_declared():

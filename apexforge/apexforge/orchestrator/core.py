@@ -45,6 +45,7 @@ from apexforge.contracts import (
     new_id,
     utc_now_iso,
 )
+from apexforge.assurance.fabric import MaxTrackersRule, default_rules
 from apexforge.obs.logging import AuditLog, emit_event
 from apexforge.policy.package import PolicyError, PolicyPackage, load_policy
 
@@ -251,6 +252,11 @@ class FleetRegistry:
 # --------------------------------------------------------------------------
 
 
+#: Name of the fabric rule that governs custody concentration. Held as a
+#: constant so the Orchestrator's reason mapping cannot drift from the rule.
+MAX_TRACKERS_RULE = MaxTrackersRule.name
+
+
 class RuntimeAssurance:
     """Pre-flight gate over a proposed set of macro-actions.
 
@@ -260,9 +266,16 @@ class RuntimeAssurance:
     the fact; this one refuses to let an out-of-policy plan leave the Intent
     layer in the first place.
 
-    The rule implemented today bounds *custody concentration*: no more than
-    ``max_trackers`` platforms may hold the ``track`` role simultaneously. The
-    ceiling is read from the signed Policy Package, falling back to config -
+    Since ADR-002 this is an **adapter over the real fabric**, not a private
+    reimplementation of one rule. Every dispatch runs the fabric's full rule
+    set - custody concentration, role vocabulary, duplicate assignment and
+    policy-version agreement - plus anything a later Layer registers through
+    ``register_rule()``. Before ADR-002 the fabric's pre-execution half had no
+    production caller at all, so three of its four rules had never run against
+    a real dispatch and the assurance surface was far thinner than ADR-001
+    described.
+
+    Ceilings are read from the signed Policy Package, falling back to config -
     never a literal, so the active value is always attributable to a versioned
     artefact.
     """
@@ -273,6 +286,7 @@ class RuntimeAssurance:
         config: Optional[Config] = None,
         policy: Optional[PolicyPackage] = None,
         max_trackers: Optional[int] = None,
+        fabric: Optional[Any] = None,
     ):
         self.config = config if config is not None else load_config()
         self.policy = policy if policy is not None else load_policy()
@@ -290,33 +304,91 @@ class RuntimeAssurance:
             )
         self.max_trackers = int(max_trackers)
 
+        # The pre-execution half of the Assurance Layer. Injectable so a
+        # mission can register additional rules, and so tests can substitute a
+        # fabric - but never optional: a dispatch path with no fabric would be
+        # the ADR-001 bypass this class exists to prevent.
+        if fabric is None:
+            from apexforge.assurance.fabric import RuntimeAssuranceFabric
+
+            fabric = RuntimeAssuranceFabric(
+                config=self.config,
+                policy=self.policy,
+                rules=default_rules(
+                    max_trackers=self.max_trackers,
+                    policy_version=self.policy_version,
+                ),
+            )
+        self.fabric = fabric
+
     # -- evaluation -------------------------------------------------------
 
     def count_trackers(self, actions: Sequence[MacroAction]) -> int:
         return sum(1 for a in actions if a.role == TRACK_ROLE)
 
     def evaluate(
-        self, actions: Sequence[MacroAction]
+        self, actions: Sequence[MacroAction], *, human_authorised: bool = False
     ) -> Tuple[Verdict, str, AssuranceEvidence]:
         """Full form: verdict plus reconstructable evidence.
 
         The evidence carries the policy version, so a refusal months later can
         be traced to the exact signed artefact that caused it.
         """
-        trackers = self.count_trackers(actions)
-        within_limit = trackers <= self.max_trackers
+        ok, reasons = self.fabric.validate_actions(
+            actions,
+            context={
+                "max_trackers": self.max_trackers,
+                "policy_version": self.policy_version,
+                # Authority is context, never a property of the actions being
+                # judged (ADR-002). At plan time nobody has authorised anything.
+                "human_authorised": bool(human_authorised),
+            },
+        )
+
+        # One check per rule, so evidence names every rule that ran - not just
+        # the one that happened to fail first.
+        rule_names = [
+            getattr(rule, "name", type(rule).__name__)
+            for rule in getattr(self.fabric, "rules", [])
+        ]
+        checks = {
+            name: not any(r.startswith(f"{name}:") for r in reasons) for name in rule_names
+        }
+        checks["tracker_limit"] = not any(
+            r.startswith(f"{MAX_TRACKERS_RULE}:") for r in reasons
+        )
+
         evidence = AssuranceEvidence(
-            checks={"tracker_limit": within_limit},
+            checks=checks,
             detail={
-                "trackers": trackers,
+                "trackers": self.count_trackers(actions),
                 "max_trackers": self.max_trackers,
                 "n_actions": len(actions),
+                "rules": rule_names,
+                "reasons": list(reasons),
             },
             policy_version=self.policy_version,
         )
-        if not within_limit:
-            return Verdict.FAIL, REASON_TOO_MANY_TRACKERS, evidence
-        return Verdict.PASS, REASON_OK, evidence
+        if ok:
+            return Verdict.PASS, REASON_OK, evidence
+        return Verdict.FAIL, self._primary_reason(reasons), evidence
+
+    @staticmethod
+    def _primary_reason(reasons: Sequence[str]) -> str:
+        """Collapse the fabric's rule reasons to one stable token.
+
+        The token is what lands in the exception message and the audit trail,
+        so it must stay machine-readable and stable - the handoff's published
+        test matches on ``too_many_trackers`` and must keep passing. Rule
+        detail lives in evidence, where it can be as verbose as it likes.
+        """
+        for reason in reasons:
+            if reason.startswith(f"{MAX_TRACKERS_RULE}:"):
+                return REASON_TOO_MANY_TRACKERS
+        # Any other rule failure is a defect in the plan rather than a policy
+        # limit, and is reported under the failing rule's own name.
+        first = reasons[0] if reasons else "unknown"
+        return first.split(":", 1)[0] or "assurance_failed"
 
     def validate(self, actions: Sequence[MacroAction]) -> Tuple[bool, str]:
         """Published interface: ``(ok, reason)``.
@@ -346,7 +418,16 @@ class RuntimeAssurance:
         """
         if reason == REASON_TOO_MANY_TRACKERS:
             return self.policy.human_gate(EXCESS_TRACKERS_GATE)
-        raise PolicyError(f"no human gate is declared for refusal reason {reason!r}")
+        # No declared gate. Per ADR-002 this is not an omission - it means the
+        # refusal is *unappealable*. A conflicting assignment or an
+        # unrecognised role is a defect in the plan, not a policy limit
+        # somebody may authorise around; offering a human the chance to approve
+        # one would turn a bug into a decision they have to sign for.
+        return None
+
+    def is_appealable(self, reason: str) -> bool:
+        """Whether a human may authorise dispatch despite this refusal."""
+        return self.gate_for(reason) is not None
 
 
 # --------------------------------------------------------------------------
@@ -527,6 +608,18 @@ class SwarmOrchestrator:
             )
 
         gate = self.assurance.gate_for(reason)
+        if gate is None:
+            # Unappealable: no decision, however well attributed, may clear it.
+            self._refuse(
+                objective=objective,
+                level=level,
+                verdict=verdict,
+                reason=reason,
+                evidence=evidence,
+                gate={},
+                workflow_instance_id=workflow_instance_id,
+                decision=decision,
+            )
         approved = self._is_approved(decision, workflow_instance_id, reason)
 
         if not approved:
@@ -608,10 +701,17 @@ class SwarmOrchestrator:
         verdict: Verdict,
         reason: str,
         evidence: AssuranceEvidence,
-        gate: Dict[str, Any],
+        gate: Optional[Dict[str, Any]],
         workflow_instance_id: str,
         decision: Optional[HumanDecision],
     ) -> None:
+        # An appealable refusal escalates to a declared gate and records who
+        # was asked. An unappealable one (ADR-002) has no gate by design, and
+        # the event says so explicitly rather than omitting the fields - an
+        # auditor must be able to tell "no gate applies" from "gate details
+        # were lost".
+        gate = gate or {}
+        appealable = bool(gate)
         emit_event(
             EVENT_ASSURANCE_REJECT,
             audit=self.audit,
@@ -623,11 +723,12 @@ class SwarmOrchestrator:
             swarm_level=level.name,
             reason=reason,
             evidence=evidence.to_wire(),
-            human_gate=EXCESS_TRACKERS_GATE,
-            notify=gate["notify"],
-            timeout_s=gate["timeout_s"],
-            escalate_to=gate["escalate_to"],
-            on_timeout=gate["on_timeout"],
+            appealable=appealable,
+            human_gate=EXCESS_TRACKERS_GATE if appealable else None,
+            notify=gate.get("notify"),
+            timeout_s=gate.get("timeout_s"),
+            escalate_to=gate.get("escalate_to"),
+            on_timeout=gate.get("on_timeout"),
             decision_present=decision is not None,
         )
         self._remember(

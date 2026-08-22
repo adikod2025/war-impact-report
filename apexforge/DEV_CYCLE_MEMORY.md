@@ -404,3 +404,43 @@ was invisible to a green suite, because the tests asserted the literals the
 controls named rather than the properties the ADR claimed. If there is one
 thing to carry into Layer 2, it is that distinction.
 
+### Entry 010 — R-29 closed: pre-execution assurance made real
+**Phase:** Post-audit remediation · **Owner:** lead · **ADR:** ADR-002
+
+**Inputs:** V1's audit finding F6; R-29 and R-30 in the risk register.
+
+**Outputs:** `docs/ADR-002-pre-execution-assurance.md`,
+`docs/design-notes/pre-execution-assurance.md`, `RuntimeAssurance` rewritten as
+an adapter over `RuntimeAssuranceFabric`, `MaxTrackersRule` de-circularised,
+appealable/unappealable refusal distinction, 10 new invariant tests.
+
+**The finding restated.** The fabric's pre-execution half had no production
+caller. Three of its four rules had never run against a real dispatch. Every
+rule had passing unit tests and the module was at 100% coverage — the gap was
+in the *wiring*, which is precisely what unit tests abstract away. Worth
+carrying forward as a category: **a module can be fully tested and entirely
+unreachable.**
+
+**The circularity found while fixing it.** `MaxTrackersRule` exempted trackers
+carrying `requires_human_approval=True`, and the Orchestrator stamps that flag
+on every action after an approval. Wiring the rule in unchanged would have
+produced a check an over-limit batch satisfied by virtue of being over-limit.
+Fixed by principle rather than patch: **authorisation is context, never a
+property of the thing being judged.**
+
+**A question the one-rule version never had to answer.** With four rules live,
+some refusals have a declared human gate and some do not. Rather than let
+`gate_for()` raise, ADR-002 makes the absence meaningful: a malformed plan is
+*unappealable*. Offering an operator the chance to approve a conflicting
+assignment would turn a bug into something they sign for.
+
+**Evidence:** 946 tests, coverage 98.78%, `./verify.sh` green. Dispatch cost
+measured and recorded in ADR-002 rather than asserted. The handoff's published
+`test_assurance_blocks_excess_trackers` passes unmodified — the rewiring did
+not disturb the published contract.
+
+**Still open after this:** the fabric is not connected to the Workflow Engine
+(the engine takes a duck-typed collaborator and blocks when none is injected).
+That is a separate change needing its own ADR, and it is now the largest
+remaining assurance-surface gap.
+
