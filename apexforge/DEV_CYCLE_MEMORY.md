@@ -139,9 +139,13 @@ Configuration Sprawl), §5 (Human-in-the-Loop as Afterthought).
   correlation id or valid verdict raises `MissingMandatoryField`. A silently
   incomplete audit record is worse than a crash because it cannot be
   reconstructed later; making it fatal is what stops the debt accumulating.
-- **The audit log is append-only by construction** — no update or delete method
-  exists, and `records()` hands out copies so history cannot be mutated through
-  a returned list.
+- **The audit log is append-only on every write path** — `append()` is the only
+  way in, and `records()` hands out copies so history cannot be mutated through
+  a returned list. It is *not* append-only by construction: `clear()` exists for
+  test isolation, guarded by convention rather than by the type. An audit store
+  that a mission could truncate would be a real defect; a test helper on an
+  in-memory first implementation is a documented compromise, and the durable
+  store that replaces it must not carry one.
 - **`AuditLog.reconstruct(mission_id)` is the Pitfall 3 acceptance criterion**
   made executable: "a simple query can reconstruct the full chain of a
   smoke-test mission".
@@ -258,4 +262,145 @@ ship without editing unrelated tests, which is schedule pressure pointing in
 exactly the wrong direction.
 
 **Evidence:** `python3 -m pytest tests/ -q` → **899 passed**.
+
+### Entry 007 — P2/A8 Simulation, and what only simulation could find
+**Phase:** P2 (late) · **Owner:** A8
+
+**Outputs:** `apexforge/sim/harness.py`, `scenarios.py`, `__init__.py`,
+`tests/test_sim.py` (74 tests, 100% coverage), `docs/design-notes/simulation.md`.
+Entry point added at integration: `python3 -m apexforge.sim`.
+
+**Design decisions that make the results trustworthy:**
+- Agents run on the **real DDIL mesh**, not the mock.
+- The Assurance Fabric is fed **only off the wire** — a fabric fed from the
+  agent objects directly would cheerfully report PASS straight through a
+  blackout, which would make the whole scenario worthless.
+- One seed → one master RNG → named streams for mesh loss and sensor
+  detections. `SimulationResult.__eq__` excludes wall-clock fields so
+  determinism is checkable. Same seed → identical result, verified for all four
+  scenarios.
+- No sleeping anywhere: one `ManualClock` shared by mesh and fabric. The whole
+  library runs in ~160 ms.
+
+**Scenario outcomes at seed 20260822:**
+
+| Scenario | Outcome |
+|---|---|
+| smoke (3 agents) | PASS, provenance = all 3 |
+| attrition (5 agents, kill UAV-000 at t3) | UNKNOWN, provenance `['UAV-000:stale']`; UAV-001 re-roled to track; exactly one tracker throughout |
+| ddil (5 agents, 20% loss, 6 s blackout) | `pass×7 → unknown×3 → pass×4`; every agent acted on every blackout tick; after settle, 0 buffered, 0 attempts-exhausted, all 210 messages delivered |
+| scale (24 agents) | PASS, 24-platform provenance, ~70 ms |
+
+**The finding that justifies Pitfall 2 on its own (R-21).** In the DDIL
+scenario every platform independently takes `track` during the blackout —
+correct, since nobody can deconflict blind. But when the link heals **none of
+them relinquish**, because `decide()` only consults `peer_owns_track` when its
+prior role is not already `track`. Five simultaneous trackers persist to
+mission end, and the swarm exits the blackout looking perfectly healthy.
+
+No unit test could have found this. It requires five agents, sustained loss and
+a blackout *that ends*. It is the "re-role logic that never ran in anger"
+symptom, verbatim.
+
+**It was not fixed here, deliberately.** A relinquish rule is a design decision
+about autonomy behaviour, not a bug fix, and ADR-001 reserves those. Recorded as
+R-21 with a recommended deterministic tie-break for an ADR before Layer 2 exit.
+The simulation reproduces it deterministically, so the eventual fix already has
+its regression test.
+
+**A8 also independently reproduced the mesh envelope defect (R-17)** with a
+four-line script before writing any code, and correctly observed that the
+existing `test_two_agents_deconflict_over_a_real_mesh` did *not* catch it —
+despite the name, it drove the mock. Two independent agents finding the same
+integration defect from different directions is the swarm working as intended.
+
+---
+
+### Entry 008 — P4 Adversarial verification swarm
+**Phase:** P4 · **Owners:** V1, V2, V3 · **Mode:** parallel, read-only
+
+Three auditors were launched against the finished build, each told to assume
+something is wrong and to report rather than fix:
+
+- **V1 — ADR-001 invariant auditor.** Attempts to defeat each invariant with
+  runnable probes: micro-management keys outside the denylist, forged human
+  approvals, PASS from absent/stale/contradictory evidence, unapproved work
+  orders reaching the ERP bridge, LOI-4/5 past the ceiling, agents against a
+  hostile transport.
+- **V2 — Test & reproducibility auditor.** Clean-copy reproduction, order
+  dependence, flakiness, module-level state leakage, and hand-run mutation
+  tests on five critical behaviours — deliberately breaking the source in a
+  scratch copy to confirm a test actually fails.
+- **V3 — Traceability & honesty auditor.** Every spec item to an artefact, every
+  published test case checked for presence and strength, and every claim in the
+  documentation checked against the code.
+
+Auditors were forbidden from modifying the repository; `git status` confirmed
+they did not.
+
+### Entry 009 — P4 What the audits found, and what it cost to be wrong
+**Phase:** P4 · **Owners:** V1, V2, V3
+
+Three auditors ran against a build that was **green: 902 tests, 98.9% coverage,
+`verify.sh` passing**. That is the condition under which an audit is worth
+anything, and they found holes the suite could not see.
+
+**V1 (invariants) — the verdict was "ADR-001 is not structurally intact."** It
+was right. The headline finding: sparsity was enforced with a **top-level
+denylist**, so every synonym nobody enumerated (`route`, `path`, `nav`, `goto`,
+`course`, `bearing_deg`) passed, and because the Orchestrator copies
+`Objective.area` verbatim into every macro-action, the *named* keys worked one
+level down. A stock `assign()` — no forgery, no subclassing — put `heading`,
+`gimbal` and `weapon` on the wire. ADR-001, the orchestrator design note and
+the README all asserted this was structurally impossible.
+
+V1's diagnosis of the pattern is the durable lesson: **wherever a decision was
+*bound* to what it decides, the gate held; wherever it was merely *present*, it
+did not.** That single sentence explains R-23 (duck-typed approval), R-24
+(unbindable, replayable orchestrator approval) and R-25 (stolen and mutated
+work orders) at once.
+
+**V2 (tests & reproducibility) — reproducibility is genuine; CI was a fiction.**
+Nine hand-run mutation tests against the highest-value invariants were all
+caught, weak-assertion density was near zero, and the suite survived path
+changes, repeat runs, file-order and intra-file shuffling, and CPU contention.
+But `ci.yml` sat at `apexforge/.github/workflows/` and GitHub only looks at the
+repository root, so **every gate it advertised had never run once** — which is
+precisely why the tree could sit red for fifteen minutes mid-audit with nothing
+noticing. It also showed the `emit_event` bypass detector was near-cosmetic by
+planting a bypass that left `-m invariant` fully green.
+
+**V3 (traceability & honesty) — "the honesty is better than the enforcement."**
+Every published test case survived, two verbatim; no stub was described as
+implemented; every deferral was declared; every performance figure carried its
+measurement conditions. But it caught the ADR overstating what the code did,
+three design notes that drifted at integration, an "append-only by
+construction" claim contradicted by a public `clear()`, and — sharpest — R-21's
+claim that "the simulation reproduces it deterministically, so the fix already
+has its regression test." **No such test existed.** That test now exists and
+asserts the defective behaviour deliberately, so it will fail loudly the day
+someone fixes it.
+
+**What was fixed:** R-22 through R-28 and R-32 through R-36 — sparsity converted
+to an allowlist with depth-recursive scanning, every human-authority gate bound
+to its subject and made single-use, the LOI ceiling re-derived per check, the
+backwards-clock hole closed, audit stamping protected, the bypass detector made
+real, CI relocated, coverage ratcheted 80 → 97, and every drifted doc claim
+corrected.
+
+**What was deliberately not fixed:** R-29 (the Assurance Fabric's pre-execution
+half has no production caller) is the most significant open item in this
+baseline and is an architectural change belonging in an ADR, not an unreviewed
+edit at the end of a build. R-21 (custody duplication after a partition heals)
+and R-15 (battery-vs-custody ordering) are autonomy-behaviour decisions that
+ADR-001 reserves. R-31 (unauthenticated peer role advertisements) belongs with
+the production bearer.
+
+**The honest summary.** The swarm produced eight modules at 100% coverage that
+were individually correct and collectively porous. Integration caught four
+defects; simulation caught a fifth; adversarial audit caught eleven more,
+including one that defeated the project's central claim about itself. Every one
+was invisible to a green suite, because the tests asserted the literals the
+controls named rather than the properties the ADR claimed. If there is one
+thing to carry into Layer 2, it is that distinction.
 

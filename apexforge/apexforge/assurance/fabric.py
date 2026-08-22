@@ -509,7 +509,14 @@ class RuntimeAssuranceFabric:
         for exactly this, and this is the only clock the fabric compares.
         """
         try:
-            return now - float(record.monotonic_ts)
+            age = now - float(record.monotonic_ts)
+            # A negative age means the clock moved backwards. That can only be
+            # an injected or misbehaving clock, and the dangerous reading is
+            # the optimistic one: hour-old evidence looking fresh and being
+            # re-admitted as PASS. Treat it as a fault and age the verdict out.
+            if age < 0:
+                return float("inf")
+            return age
         except (TypeError, ValueError):
             # An unreadable timestamp is not a fresh one. Infinite age means
             # the verdict is stale, which means UNKNOWN - the safe direction.

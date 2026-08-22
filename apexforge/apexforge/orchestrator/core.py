@@ -328,6 +328,14 @@ class RuntimeAssurance:
         verdict, reason, _ = self.evaluate(actions)
         return verdict is Verdict.PASS, reason
 
+    def gate_name_for(self, reason: str) -> str:
+        """Name of the policy gate that governs this refusal reason.
+
+        A decision must name the gate it was made at; this is the mapping that
+        makes that checkable.
+        """
+        return EXCESS_TRACKERS_GATE
+
     def gate_for(self, reason: str) -> Dict[str, Any]:
         """The declared human gate that governs a given refusal reason.
 
@@ -393,6 +401,9 @@ class SwarmOrchestrator:
         #: appends exactly one entry carrying objective, count, level, verdict,
         #: timestamp and policy version.
         self.history: List[Dict[str, Any]] = []
+        #: Fingerprints of human decisions already spent. Authority is granted
+        #: once, for one dispatch - see :meth:`_is_approved`.
+        self._consumed_decisions: set = set()
 
     # -- properties -------------------------------------------------------
 
@@ -492,7 +503,16 @@ class SwarmOrchestrator:
         """
         actions = self.plan(objective, level)
         verdict, reason, evidence = self.assurance.evaluate(actions)
-        workflow_instance_id = new_id(_WORKFLOW_PREFIX)
+        # When a decision is offered, the correlation id comes *from* it. A
+        # locally-minted id could never appear in any decision, so the binding
+        # check would be unsatisfiable and "is an approval present" would be
+        # the only test left - which is how an unrelated approval for some
+        # other subject gets replayed to authorise this one.
+        workflow_instance_id = (
+            decision.workflow_instance_id
+            if isinstance(decision, HumanDecision) and decision.workflow_instance_id
+            else new_id(_WORKFLOW_PREFIX)
+        )
 
         if verdict is Verdict.PASS:
             return self._dispatch(
@@ -540,19 +560,45 @@ class SwarmOrchestrator:
 
     # -- internals --------------------------------------------------------
 
-    @staticmethod
     def _is_approved(
-        decision: Optional[HumanDecision], workflow_instance_id: str, reason: str
+        self, decision: Optional[HumanDecision], workflow_instance_id: str, reason: str
     ) -> bool:
-        """True only for a real, attributed, approving HumanDecision."""
+        """True only for a real, attributed, approving, *bound*, unused decision.
+
+        Four things are checked, and the last three are what stop replay:
+
+        1. It is a genuine :class:`HumanDecision` (so operator and rationale
+           were enforced at construction) and it approves.
+        2. It names **this** correlation id.
+        3. It names **this gate**. Without it, an approval for a maintenance
+           work order authorises an over-limit tracking assignment - different
+           subject, different operator, different day.
+        4. It has not been consumed before. Authority is granted once, for one
+           dispatch; a decision that could be replayed is a standing permission
+           nobody agreed to give.
+        """
         if not isinstance(decision, HumanDecision):
             return False
+
+        gate_name = self.assurance.gate_name_for(reason)
         event = WorkflowEvent(
             name=f"{reason}_gate",
             payload={"workflow_instance_id": workflow_instance_id},
             human_decision=decision,
         )
-        return event.human_approved
+        if not event.approves(workflow_instance_id, gate_name):
+            return False
+
+        fingerprint = (
+            decision.workflow_instance_id,
+            decision.step_id,
+            decision.operator_id,
+            decision.timestamp,
+        )
+        if fingerprint in self._consumed_decisions:
+            return False
+        self._consumed_decisions.add(fingerprint)
+        return True
 
     def _refuse(
         self,

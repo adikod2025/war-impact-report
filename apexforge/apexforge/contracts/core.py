@@ -94,6 +94,30 @@ def _check_version(payload: Dict[str, Any], cls_name: str) -> None:
         )
 
 
+
+def _forbidden_at_any_depth(value: Any, forbidden: "tuple[str, ...]", _depth: int = 0) -> set:
+    """Collect forbidden keys anywhere inside a nested structure.
+
+    A top-level key scan is trivially defeated by nesting: the Orchestrator
+    copies an ``Objective.area`` verbatim into every macro-action, so a
+    ``heading`` placed inside the area reaches the wire untouched while the
+    top-level check reports clean. Depth is bounded so a pathological or
+    self-referential payload cannot hang the validator.
+    """
+    found: set = set()
+    if _depth > 8:
+        return found
+    if isinstance(value, dict):
+        for key, sub in value.items():
+            if isinstance(key, str) and key.lower() in forbidden:
+                found.add(key)
+            found |= _forbidden_at_any_depth(sub, forbidden, _depth + 1)
+    elif isinstance(value, (list, tuple, set)):
+        for sub in value:
+            found |= _forbidden_at_any_depth(sub, forbidden, _depth + 1)
+    return found
+
+
 # --------------------------------------------------------------------------
 # Enumerations (defined ONCE - the handoff duplicated SwarmLevel across two
 # modules, which is the contract drift Pitfall 1 warns about)
@@ -290,8 +314,33 @@ class MacroAction:
 
     ALLOWED_ROLES = ("search", "track", "relay", "idle", "rtb")
 
-    # Fields that would turn sparse command into micro-management. Checked at
-    # runtime so that an agent adding one gets a test failure, not a merge.
+    # --- Sparsity enforcement -------------------------------------------
+    #
+    # This is an ALLOWLIST, deliberately. A denylist of micro-management words
+    # can only ever reject the words somebody thought of: `route`, `path`,
+    # `nav`, `goto`, `course` and `bearing_deg` all sail through one, and a
+    # forbidden key nested one level down inside `area` is invisible to a
+    # top-level scan. Sparsity is a statement about what the Intent layer MAY
+    # say, so the contract enumerates that instead.
+    #
+    # Adding a key here is an ADR-level decision, not a convenience.
+    ALLOWED_PARAM_KEYS = ("objective", "area", "priority", "policy_version")
+
+    #: The only geometry the Intent layer may express: *where*, never *how to
+    #: fly there*. An area of interest is an objective; a waypoint is a
+    #: trajectory, and trajectories belong to local autonomy.
+    ALLOWED_AREA_KEYS = (
+        "name",
+        "lat",
+        "lon",
+        "radius_m",
+        "alt_min_m",
+        "alt_max_m",
+    )
+
+    #: Retained as belt-and-braces and scanned at every depth, so that a
+    #: micro-management or kinetic term smuggled inside an otherwise-permitted
+    #: structure is still caught with a precise message.
     FORBIDDEN_PARAM_KEYS = (
         "waypoint",
         "waypoints",
@@ -299,9 +348,19 @@ class MacroAction:
         "heading",
         "gimbal",
         "sensor_pointing",
+        "route",
+        "path",
+        "nav",
+        "goto",
+        "course",
+        "bearing_deg",
+        "loiter_point",
+        "pointing",
+        "look_at",
         "weapon",
         "target_engagement",
         "fire",
+        "engagement",
     )
 
     def __post_init__(self) -> None:
@@ -311,7 +370,32 @@ class MacroAction:
             raise ContractViolation(
                 f"MacroAction.role {self.role!r} not in {self.ALLOWED_ROLES}"
             )
-        offending = [k for k in self.params if k in self.FORBIDDEN_PARAM_KEYS]
+        if not isinstance(self.params, dict):
+            raise ContractViolation("MacroAction.params must be a dict")
+
+        unknown = [k for k in self.params if k not in self.ALLOWED_PARAM_KEYS]
+        if unknown:
+            raise ContractViolation(
+                f"MacroAction.params contains key(s) {sorted(unknown)} outside the "
+                f"permitted sparse-command vocabulary {self.ALLOWED_PARAM_KEYS}. "
+                f"ADR-001 confines the Intent layer to objectives and areas; "
+                f"anything finer belongs to local autonomy. Widening this "
+                f"allowlist requires a new ADR."
+            )
+
+        area = self.params.get("area")
+        if area is not None:
+            if not isinstance(area, dict):
+                raise ContractViolation("MacroAction.params['area'] must be a mapping")
+            stray = [k for k in area if k not in self.ALLOWED_AREA_KEYS]
+            if stray:
+                raise ContractViolation(
+                    f"MacroAction area contains key(s) {sorted(stray)} outside "
+                    f"{self.ALLOWED_AREA_KEYS}. An area of interest states where, "
+                    f"never how to fly there."
+                )
+
+        offending = sorted(_forbidden_at_any_depth(self.params, self.FORBIDDEN_PARAM_KEYS))
         if offending:
             raise ContractViolation(
                 f"MacroAction.params contains micro-management or kinetic keys "
@@ -536,5 +620,24 @@ class WorkflowEvent:
 
         There is deliberately no way to signal approval with a bare boolean:
         an approval must carry an operator and a rationale or it does not exist.
+
+        The ``isinstance`` check is load-bearing, not defensive typing. The
+        mandatory ``operator_id`` and ``rationale`` are enforced in
+        :meth:`HumanDecision.__post_init__`, so a duck-typed stand-in with
+        ``approved = True`` and empty attribution would never reach that
+        constructor and would sail straight through a truthiness test - writing
+        an anonymous approval into the immutable audit trail.
         """
-        return self.human_decision is not None and self.human_decision.approved
+        return isinstance(self.human_decision, HumanDecision) and self.human_decision.approved
+
+    def approves(self, workflow_instance_id: str, step_id: str) -> bool:
+        """True when this event carries an approval *for this specific step*.
+
+        Presence is not authority. An approval names what it approves, or a
+        decision made about one thing can be replayed to authorise another.
+        """
+        return (
+            self.human_approved
+            and self.human_decision.workflow_instance_id == workflow_instance_id
+            and self.human_decision.step_id == step_id
+        )

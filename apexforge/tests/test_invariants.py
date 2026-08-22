@@ -152,7 +152,7 @@ def test_macroaction_roles_remain_non_kinetic():
     "key", ["waypoint", "waypoints", "trajectory", "heading", "gimbal", "sensor_pointing"]
 )
 def test_intent_layer_cannot_emit_micromanagement(key):
-    with pytest.raises(ContractViolation, match="micro-management or kinetic"):
+    with pytest.raises(ContractViolation, match=r"sparse-command vocabulary|micro-management or kinetic"):
         MacroAction(platform_id="UAV-001", role="search", params={key: [1, 2]})
 
 
@@ -299,13 +299,55 @@ def test_emit_event_still_refuses_an_invented_verdict():
 
 
 def test_high_consequence_modules_do_not_bypass_emit_event():
-    """A raw logger call on an act/assign path is the Pitfall 3 failure.
+    """A raw logger call on a high-consequence path is the Pitfall 3 failure.
 
-    We allow `logger.debug` (diagnostics) and warnings/exceptions that
-    accompany an emitted event, but an `info` level log inside a function
-    named act/assign/approve/ingest is a smell worth failing on.
+    CLAUDE.md promises this test will fail the build for such a bypass, so the
+    detector has to actually reach the ways people write logging calls:
+
+    * ``logger.info(...)``           - bare module logger
+    * ``_LOGGER.info(...)``          - the underscore-prefixed convention
+    * ``self.logger.info(...)``      - an attribute receiver
+    * ``logging.getLogger(...).info(...)`` - constructed inline
+
+    An earlier version matched only a bare ``ast.Name`` receiver from a
+    three-name allowlist, which excluded ``_LOGGER`` - the actual module logger
+    in ``workflows/engine.py`` - and every attribute or call receiver. It was
+    close to cosmetic.
+
+    ``warning``/``error``/``exception`` are deliberately exempt: those
+    accompany an emitted event rather than replacing it. Only ``info`` on a
+    high-consequence function is the substitution we are hunting.
     """
-    watched = {"act", "assign", "approve", "submit", "advance"}
+    watched = {
+        "act",
+        "assign",
+        "approve",
+        "submit",
+        "advance",
+        "dispatch",
+        "ingest",
+        "assign_with_approval",
+        "emit_hums",
+        "decide",
+        "tick",
+        "send",
+        "publish",
+    }
+
+    def _is_logging_receiver(node: ast.AST) -> bool:
+        """True if this expression plausibly evaluates to a logger."""
+        if isinstance(node, ast.Name):
+            return "log" in node.id.lower()
+        if isinstance(node, ast.Attribute):
+            # self.logger / self._log / module.LOGGER
+            return "log" in node.attr.lower() or _is_logging_receiver(node.value)
+        if isinstance(node, ast.Call):
+            # logging.getLogger("x").info(...)
+            func = node.func
+            name = getattr(func, "attr", None) or getattr(func, "id", None) or ""
+            return "getlogger" in name.lower() or _is_logging_receiver(func)
+        return False
+
     offenders = []
     for path in SOURCE_FILES:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -319,11 +361,51 @@ def test_high_consequence_modules_do_not_bypass_emit_event():
                     isinstance(inner, ast.Call)
                     and isinstance(inner.func, ast.Attribute)
                     and inner.func.attr == "info"
-                    and isinstance(inner.func.value, ast.Name)
-                    and inner.func.value.id in ("logger", "log", "LOGGER")
+                    and _is_logging_receiver(inner.func.value)
                 ):
-                    offenders.append(f"{path.name}:{inner.lineno}: logger.info in {node.name}()")
+                    offenders.append(
+                        f"{path.name}:{inner.lineno}: raw logger.info in {node.name}()"
+                    )
     assert not offenders, "raw logging on a high-consequence path:\n" + "\n".join(offenders)
+
+
+def test_the_bypass_detector_catches_every_way_of_writing_it():
+    """Guard the guard. Each of these once slipped past the detector."""
+    import textwrap
+
+    def _detect(src: str) -> bool:
+        tree = ast.parse(textwrap.dedent(src))
+
+        def _is_logging_receiver(node):
+            if isinstance(node, ast.Name):
+                return "log" in node.id.lower()
+            if isinstance(node, ast.Attribute):
+                return "log" in node.attr.lower() or _is_logging_receiver(node.value)
+            if isinstance(node, ast.Call):
+                func = node.func
+                name = getattr(func, "attr", None) or getattr(func, "id", None) or ""
+                return "getlogger" in name.lower() or _is_logging_receiver(func)
+            return False
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef) or node.name.lstrip("_") != "act":
+                continue
+            for inner in ast.walk(node):
+                if (
+                    isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Attribute)
+                    and inner.func.attr == "info"
+                    and _is_logging_receiver(inner.func.value)
+                ):
+                    return True
+        return False
+
+    assert _detect("def act(self):\n    logger.info('x')")
+    assert _detect("def act(self):\n    _LOGGER.info('x')")
+    assert _detect("def act(self):\n    self.logger.info('x')")
+    assert _detect("def act(self):\n    logging.getLogger('apexforge').info('x')")
+    assert not _detect("def act(self):\n    emit_event('act')")
+    assert not _detect("def plan(self):\n    logger.info('x')"), "unwatched function"
 
 
 # ===========================================================================
@@ -367,3 +449,287 @@ def test_the_working_agreement_still_exists_and_forbids_the_right_things():
         "schema_version",
     ):
         assert required in text, f"working agreement no longer mentions {required!r}"
+
+
+# ===========================================================================
+# Adversarial regression tests — every one of these corresponds to a hole an
+# audit actually opened in this build. They assert the *property* rather than
+# the literals the controls already name, because asserting the literals is
+# how the holes stayed hidden through 902 green tests.
+# ===========================================================================
+
+
+@pytest.mark.parametrize(
+    "key",
+    # None of these were in the original denylist. All of them are trajectories
+    # or sensor pointing by another name.
+    ["route", "path", "nav", "goto", "loiter_point", "pointing", "look_at",
+     "course", "bearing_deg", "wp", "engagement", "anything_unlisted"],
+)
+def test_sparsity_is_an_allowlist_not_a_denylist(key):
+    """A denylist can only reject the words somebody thought of."""
+    with pytest.raises(ContractViolation):
+        MacroAction(platform_id="UAV-001", role="search", params={key: [1, 2, 3]})
+
+
+@pytest.mark.parametrize("key", ["waypoints", "heading", "gimbal", "trajectory"])
+def test_sparsity_survives_nesting_inside_area(key):
+    """A top-level key scan is trivially defeated by nesting one level down."""
+    with pytest.raises(ContractViolation):
+        MacroAction(
+            platform_id="UAV-001",
+            role="search",
+            params={"area": {"lat": 24.7, "lon": 46.7, key: 137.0}},
+        )
+
+
+def test_orchestrator_cannot_launder_micromanagement_through_objective_area():
+    """The end-to-end version: a stock assign() must not put heading on the wire.
+
+    The Orchestrator copies Objective.area verbatim into every macro-action, so
+    an unvalidated area is a direct channel from operator input to the wire.
+    """
+    from apexforge.orchestrator.core import (
+        Asset,
+        FleetRegistry,
+        Objective,
+        SwarmOrchestrator,
+    )
+
+    reg = FleetRegistry()
+    reg.register(Asset(id="UAV-000", readiness=0.9))
+    orch = SwarmOrchestrator(reg)
+
+    with pytest.raises(ContractViolation):
+        orch.assign(Objective(name="probe", area={"heading": 137.0, "gimbal": 3.0}))
+
+
+def test_a_legitimate_area_still_works():
+    """The allowlist must not break the actual use case."""
+    a = MacroAction(
+        platform_id="UAV-001",
+        role="search",
+        params={"objective": "ISR-1", "area": {"lat": 24.7, "lon": 46.7, "radius_m": 5000}},
+    )
+    assert a.params["area"]["radius_m"] == 5000
+
+
+def test_a_duck_typed_object_cannot_approve_anything():
+    """Attribution lives in HumanDecision.__post_init__, which a stand-in skips."""
+
+    class NotADecision:
+        workflow_instance_id = "w1"
+        step_id = "s1"
+        operator_id = ""
+        rationale = ""
+        approved = True
+        timestamp = "whenever"
+
+    assert WorkflowEvent(name="x", human_decision=NotADecision()).human_approved is False
+
+
+def test_an_approval_must_name_what_it_approves():
+    """Presence is not authority: a decision names its instance and its step."""
+    d = HumanDecision(
+        workflow_instance_id="w1",
+        step_id="s1",
+        operator_id="op-1",
+        approved=True,
+        rationale="checked",
+    )
+    ev = WorkflowEvent(name="x", human_decision=d)
+    assert ev.approves("w1", "s1") is True
+    assert ev.approves("w2", "s1") is False, "approval reused across instances"
+    assert ev.approves("w1", "s2") is False, "approval reused across steps"
+
+
+def test_an_unrelated_approval_cannot_authorise_an_over_limit_assignment():
+    """A maintenance approval must not authorise a tracking assignment."""
+    from apexforge.orchestrator.core import (
+        Asset,
+        FleetRegistry,
+        Objective,
+        SwarmOrchestrator,
+    )
+
+    reg = FleetRegistry()
+    for i in range(5):
+        reg.register(Asset(id=f"UAV-{i:03d}", readiness=0.9))
+    orch = SwarmOrchestrator(reg)
+    objective = Objective(name="TrackHeavy", area={}, required_roles=["track"] * 5)
+
+    unrelated = HumanDecision(
+        workflow_instance_id="wo-8f21a0c3",
+        step_id="critical_mro_work_order",
+        operator_id="maintenance_controller",
+        approved=True,
+        rationale="approved a battery replacement on UAV-004 last Tuesday",
+    )
+    with pytest.raises(RuntimeError, match="too_many_trackers"):
+        orch.assign_with_approval(objective, decision=unrelated)
+
+
+def test_a_human_approval_is_spent_once():
+    """A replayable decision is a standing permission nobody agreed to give."""
+    from apexforge.orchestrator.core import (
+        Asset,
+        FleetRegistry,
+        Objective,
+        SwarmOrchestrator,
+    )
+
+    reg = FleetRegistry()
+    for i in range(5):
+        reg.register(Asset(id=f"UAV-{i:03d}", readiness=0.9))
+    orch = SwarmOrchestrator(reg)
+    objective = Objective(name="TrackHeavy", area={}, required_roles=["track"] * 5)
+
+    decision = HumanDecision(
+        workflow_instance_id="wf-once",
+        step_id="excess_trackers",
+        operator_id="mission_commander",
+        approved=True,
+        rationale="five trackers authorised for this tasking only",
+    )
+    assert len(orch.assign_with_approval(objective, decision=decision)) == 5
+    with pytest.raises(RuntimeError, match="too_many_trackers"):
+        orch.assign_with_approval(objective, decision=decision)
+
+
+def test_a_stolen_decision_cannot_admit_a_work_order():
+    """The ERP bridge must bind the approval to the order it approved."""
+    from apexforge.mro.predictor import (
+        HealthPredictor,
+        HumanGateBypass,
+        WorkOrder,
+        WorkOrderBridge,
+        WorkOrderRecommendation,
+    )
+    from apexforge.mro.twin import DigitalTwinClient
+
+    def rec(pid):
+        return WorkOrderRecommendation(
+            platform_id=pid, component="battery", priority="critical",
+            action="inspect_and_replace", requires_human_approval=True,
+            estimated_rul_hours=4.0, rationale="RUL low",
+        )
+
+    predictor = HealthPredictor(DigitalTwinClient())
+    bridge = WorkOrderBridge()
+
+    genuine = WorkOrder(recommendation=rec("UAV-008"), gate=predictor.gate_spec())
+    decision = HumanDecision(
+        workflow_instance_id=genuine.workflow_instance_id,
+        step_id=genuine.gate_name,
+        operator_id="maintenance_controller",
+        approved=True,
+        rationale="routine battery swap",
+    )
+    predictor.approve(genuine, decision)
+
+    forged = WorkOrder(
+        recommendation=rec("UAV-666"),
+        state="approved",
+        decision=decision,
+        gate=predictor.gate_spec(),
+    )
+    with pytest.raises(HumanGateBypass):
+        bridge.submit(forged)
+
+
+def test_mutating_a_work_order_after_approval_invalidates_it():
+    """Approval is consent to a specific action, not a blank cheque."""
+    from apexforge.mro.predictor import (
+        HealthPredictor,
+        HumanGateBypass,
+        WorkOrder,
+        WorkOrderBridge,
+        WorkOrderRecommendation,
+    )
+    from apexforge.mro.twin import DigitalTwinClient
+
+    predictor = HealthPredictor(DigitalTwinClient())
+    bridge = WorkOrderBridge()
+    order = WorkOrder(
+        recommendation=WorkOrderRecommendation(
+            platform_id="UAV-008", component="battery", priority="critical",
+            action="inspect_and_replace", requires_human_approval=True,
+            estimated_rul_hours=4.0, rationale="RUL low",
+        ),
+        gate=predictor.gate_spec(),
+    )
+    predictor.approve(
+        order,
+        HumanDecision(
+            workflow_instance_id=order.workflow_instance_id,
+            step_id=order.gate_name,
+            operator_id="maintenance_controller",
+            approved=True,
+            rationale="routine battery swap",
+        ),
+    )
+
+    order.recommendation.action = "remove airframe from service and scrap"
+    order.recommendation.platform_id = "UAV-999"
+    with pytest.raises(HumanGateBypass):
+        bridge.submit(order)
+
+
+def test_the_loi_ceiling_cannot_be_raised_by_assignment():
+    """The hard cap belongs to the accepted Layer, not to an object's state."""
+    from apexforge.interop.stanag4586 import (
+        LoiCeilingError,
+        MockAirVehicle,
+        Stanag4586Adapter,
+    )
+
+    class Forward(Stanag4586Adapter):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self.max_loi = 5
+
+        # An attacker would set this after construction too.
+
+    adapter = Forward("CUCS-1")
+    vehicle = MockAirVehicle("UAV-002")
+    if hasattr(adapter, "register_vehicle"):
+        adapter.register_vehicle(vehicle)
+    with pytest.raises(LoiCeilingError):
+        adapter.vehicle_control("UAV-002", command="descend")
+
+
+def test_a_backwards_clock_cannot_refresh_stale_evidence():
+    """The dangerous reading of a bad clock is the optimistic one."""
+    from apexforge.assurance.fabric import RuntimeAssuranceFabric
+
+    now = {"t": 1000.0}
+    fabric = RuntimeAssuranceFabric(evidence_timeout_s=30.0, clock=lambda: now["t"])
+    fabric.start_mission("M1")
+    fabric.ingest("UAV-001", Verdict.PASS, {})
+
+    now["t"] = 1000.0 + 3600.0
+    assert fabric.mission_verdict()[0] == Verdict.UNKNOWN
+
+    now["t"] = 500.0  # clock steps backwards
+    assert fabric.mission_verdict()[0] == Verdict.UNKNOWN, (
+        "stale evidence was re-admitted as fresh by a backwards clock"
+    )
+
+
+@pytest.mark.parametrize("reserved", ["timestamp", "schema_version"])
+def test_a_caller_cannot_overwrite_the_fields_emit_event_stamps(reserved):
+    """Backdating an audit entry must not be expressible."""
+    with pytest.raises(MissingMandatoryField, match="stamps"):
+        emit_event(
+            "act",
+            audit=AuditLog(),
+            platform_id="UAV-001",
+            action_id="a1",
+            **{reserved: "forged"},
+        )
+
+
+@pytest.mark.parametrize("blank", ["   ", "\t", "\n"])
+def test_whitespace_is_not_attribution(blank):
+    with pytest.raises(MissingMandatoryField):
+        emit_event("act", audit=AuditLog(), platform_id=blank, action_id="a1")

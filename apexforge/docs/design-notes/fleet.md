@@ -50,12 +50,12 @@ campaign — which is why the SBOM belongs in the canonical record.
 
 - **Readiness is stored, not derived** — clamped to [0,1] and audited here;
   computing it from HUMS/RUL is MRO's job, written back through this API.
-- **No `fleet.stale_after_s` key exists**, so `stale()` inherits
+- **`fleet.stale_after_s` is declared in `config/default.yaml`**, so `stale()` inherits
   `assurance.evidence_timeout_s` — the same absent-evidence question at fleet
   scale. Adding the key is one config line, which the code already prefers.
 - **`AssetRecord` bounds readiness but not battery** while `Asset` bounds both,
   so `upsert` rejects an unprojectable battery rather than letting
-  `as_planning_view()` fail later; it also ships no `to_wire`/`from_wire`, so
+  `as_planning_view()` fail later; it also now ships `to_wire`/`from_wire` (added during integration), so
   serialisation lives here. Both clean fixes need a contract ADR.
 - **In-process audit only** — `AuditLog` is memory-backed; durable storage
   moves with the store at Layer 2+.

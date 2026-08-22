@@ -702,18 +702,23 @@ class Stanag4586Adapter:
     # -- ceiling ----------------------------------------------------------
 
     def _check_ceiling(self, loi: LOI, context: str, **fields: Any) -> None:
-        if loi.value > self.max_loi:
+        # Re-derive the ceiling on every check rather than trusting the
+        # instance attribute set in __init__. A subclass (or anything else with
+        # a reference) can assign self.max_loi = 5 after construction; the hard
+        # cap is a property of the accepted Layer, not of an object's state.
+        effective = min(int(self.max_loi), ACCEPTED_LAYER_MAX_LOI)
+        if loi.value > effective:
             self._emit(
                 "stanag_loi_refused",
                 assurance_verdict="fail",
                 loi=loi.value,
-                max_loi=self.max_loi,
+                max_loi=effective,
                 context=context,
                 **fields,
             )
             raise LoiCeilingError(
                 f"LOI-{loi.value} {context} refused: the accepted interoperability "
-                f"ceiling is LOI-{self.max_loi} (interop.max_loi="
+                f"ceiling is LOI-{effective} (interop.max_loi="
                 f"{self.configured_max_loi}, hard cap ACCEPTED_LAYER_MAX_LOI="
                 f"{ACCEPTED_LAYER_MAX_LOI}). Advancing the ceiling requires an "
                 f"explicit risk-acceptance record and an ADR (Pitfall 6), not a "

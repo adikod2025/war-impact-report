@@ -150,14 +150,14 @@ def test_asset_record_rejects_invalid_uas_group():
 )
 def test_macroaction_refuses_micromanagement_params(key):
     """ADR-001: the Intent layer issues roles, never trajectories."""
-    with pytest.raises(ContractViolation, match="micro-management or kinetic"):
+    with pytest.raises(ContractViolation, match=r"sparse-command vocabulary|micro-management or kinetic"):
         MacroAction(platform_id="UAV-001", role="search", params={key: [1, 2, 3]})
 
 
 @pytest.mark.parametrize("key", ["weapon", "target_engagement", "fire"])
 def test_macroaction_refuses_kinetic_params(key):
     """No kinetic or effector control logic may enter the system."""
-    with pytest.raises(ContractViolation, match="micro-management or kinetic"):
+    with pytest.raises(ContractViolation, match=r"sparse-command vocabulary|micro-management or kinetic"):
         MacroAction(platform_id="UAV-001", role="track", params={key: True})
 
 

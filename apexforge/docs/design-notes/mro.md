@@ -35,4 +35,4 @@ Every transition emits via `emit_event()` with `platform_id`, `workflow_instance
 * The stub extrapolates one channel linearly — no load, duty cycle, temperature or component coupling — and treats battery fraction as a life proxy. It will be wrong on non-linear wear; hence the human gate.
 * Confidence is a sample-count heuristic, not a calibrated probability.
 * `sync` identity is content-based: two distinct but byte-identical reports collapse to one. Twin state and the audit log are in-process only (durability is Layer 6).
-* `mro.history_capacity`, `mro.history_window`, `mro.convergence_sla_s` and `mro.convergence_tolerance` are read but not yet declared in `config/default.yaml`; they fall back to named module constants.
+* `mro.history_capacity`, `mro.history_window`, `mro.convergence_sla_s` and `mro.convergence_tolerance` are read but declared in `config/default.yaml`; they fall back to named module constants.

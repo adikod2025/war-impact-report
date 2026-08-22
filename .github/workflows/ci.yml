@@ -55,7 +55,7 @@ jobs:
         run: python -m pytest -m invariant -q
 
       - name: Full suite with coverage gate
-        run: python -m pytest -q --cov=apexforge --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+        run: python -m pytest -q --cov=apexforge --cov-report=term-missing --cov-report=xml --cov-fail-under=97
 
       - name: Performance budgets
         run: python -m pytest -m perf -q

@@ -9,7 +9,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-COV_MIN="${APEXFORGE_COV_MIN:-80}"
+# Ratcheted to 97: actual coverage is ~99%, so an 80% gate left ~650
+# statements of dead slack and gated nothing. A threshold well below reality is
+# a threshold that cannot detect a regression.
+COV_MIN="${APEXFORGE_COV_MIN:-97}"
 GREEN=$'\033[0;32m'; RED=$'\033[0;31m'; BOLD=$'\033[1m'; NC=$'\033[0m'
 
 step() { printf '\n%s==> %s%s\n' "$BOLD" "$1" "$NC"; }

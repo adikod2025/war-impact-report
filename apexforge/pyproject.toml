@@ -28,6 +28,9 @@ apexforge = ["config/*.yaml", "policy/*.yaml", "policy/*.sig"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short --strict-markers"
+# Make `pytest` work from the project root without an editable install, so the
+# documented invocation and the one people actually type are the same path.
+pythonpath = ["."]
 markers = [
     "smoke: canonical WF-SMOKE-01 workflow, must stay green forever",
     "contract: frozen interface contract tests (Pitfall 1 control)",

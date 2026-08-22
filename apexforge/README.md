@@ -94,7 +94,7 @@ The handoff's roadmap spans Layers 0–6. This baseline delivers what can be
 
 | | Status |
 |---|---|
-| Pre-Development Gate (entry criterion for Layer 1) | **Complete** — [evidence](docs/PRE_DEV_GATE.md) |
+| Pre-Development Gate (entry criterion for Layer 1) | **Complete** — [evidence](docs/PRE_DEV_GATE.md), including a correction after adversarial audit |
 | Layer 1 — Sprint-1 Stabilisation | **Complete to its exit gate** |
 | Layer 2 — resilient mesh + STANAG LOI-3 | **In-process foundations.** Deterministic store-and-forward mesh and LOI 1–3 contracts are real and tested; a production NATS/radio bearer is not claimed. |
 | Simulation (pulled forward from Layer 5 per Pitfall 2) | **Implemented** — harness + stress scenarios |

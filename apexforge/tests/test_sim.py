@@ -204,11 +204,18 @@ def test_the_harness_never_touches_the_global_random_module():
     """A global draw would couple two scenarios and destroy reproducibility."""
     import random
 
-    random.seed(1)
-    before = random.random()
-    random.seed(1)
-    run_scenario("ddil", seed=99)
-    assert random.random() == before
+    # Restore the interpreter's RNG state afterwards. Seeding the global module
+    # and walking away leaves every later test running against a state this one
+    # chose - the kind of cross-test coupling this very test exists to detect.
+    saved = random.getstate()
+    try:
+        random.seed(1)
+        before = random.random()
+        random.seed(1)
+        run_scenario("ddil", seed=99)
+        assert random.random() == before
+    finally:
+        random.setstate(saved)
 
 
 # ===========================================================================
@@ -811,3 +818,43 @@ def test_an_unknown_mission_verdict_is_not_counted_as_a_ci_failure():
     stream = io.StringIO()
     assert main(["attrition"], stream=stream) == 0
     assert "UNKNOWN" in stream.getvalue()
+
+
+# ===========================================================================
+# R-21 — custody duplication does not recover after a partition heals
+# ===========================================================================
+
+
+@pytest.mark.sim
+def test_R21_custody_duplication_persists_after_the_blackout_heals():
+    """Pins the known defect R-21 so it cannot change unnoticed.
+
+    This test asserts the **current, defective** behaviour deliberately. During
+    a blackout every platform independently takes ``track`` — correct, since
+    nobody can deconflict blind. But when the link returns none of them
+    relinquish, because ``decide()`` consults ``peer_owns_track`` only when its
+    prior role is not already ``track``. Multiple simultaneous trackers persist
+    to mission end.
+
+    Fixing that is a design decision about autonomy behaviour, not a bug fix,
+    and ADR-001 reserves those for an ADR. Until that decision is taken, this
+    test does two jobs: it proves the defect is real and deterministic rather
+    than a story in a risk register, and it will **fail loudly** the moment
+    someone implements a relinquish rule — at which point the assertion below
+    should be inverted and R-21 closed.
+
+    See docs/RISK_REGISTER.md R-21.
+    """
+    result = run_scenario("ddil", seed=20260822)
+
+    final = result.trackers_at(result.ticks - 1)
+    assert len(final) > 1, (
+        "R-21 appears to be fixed: custody is now single-valued after the "
+        "partition healed. Invert this assertion, close R-21 in "
+        "docs/RISK_REGISTER.md, and record the ADR that authorised the change."
+    )
+
+    # And the agents really did keep flying throughout - the duplication is a
+    # deconfliction failure, not a crash or a stall.
+    assert result.ticks > 0
+    assert all(result.roles_at(result.ticks - 1).values())

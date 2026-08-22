@@ -1194,3 +1194,49 @@ def test_wf01_aborts_when_launch_authority_never_arrives(engine, audit):
     assert inst.status is StepStatus.FAILED
     assert inst.escalations[-1]["escalate_to"] == "duty_officer"
     assert inst.status_of("wf01-launch") is StepStatus.TIMED_OUT
+
+
+def test_a_non_genuine_decision_is_rejected_and_the_gate_stays_open():
+    """A decision-shaped object is not a decision.
+
+    It never passed ``HumanDecision.__post_init__``, so it carries no
+    attribution. Recording it as a human *denial* would put a decision in the
+    audit trail that no person made, so it is rejected as invalid and the gate
+    keeps waiting for a real one.
+    """
+    audit = AuditLog()
+    engine = WorkflowEngine(None, None, audit=audit)
+    engine.register("launch", lambda *a, **k: None)
+    step = WorkflowStep(
+        id="s1",
+        name="launch",
+        requires_human=True,
+        assurance_required=False,
+        gate_name="loi5_launch_recovery",
+    )
+    inst = engine.start("WF-04", {"mission_id": "M1"})
+
+    class NotADecision:
+        operator_id = ""
+        rationale = ""
+        approved = True
+        timestamp = "whenever"
+
+        def __init__(self, instance_id):
+            self.workflow_instance_id = instance_id
+            self.step_id = "s1"
+
+    status = engine.advance(
+        inst, step, WorkflowEvent(name="x", human_decision=NotADecision(inst.instance_id))
+    )
+    assert status is StepStatus.WAITING_HUMAN, "a forgery must not resolve the gate"
+
+    rejections = [
+        r for r in audit.records() if r.get("event_type") == "human_decision_rejected"
+    ]
+    assert rejections, "the rejection must be auditable"
+    assert rejections[0]["reason"] == "not_a_human_decision"
+    assert rejections[0]["approved"] is False
+
+    # And nothing was recorded as an actual human decision.
+    assert not [r for r in audit.records() if r.get("event_type") == "human_decision"]

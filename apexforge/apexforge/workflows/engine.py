@@ -615,6 +615,27 @@ class WorkflowEngine:
 
         decision = event.human_decision if event is not None else None
 
+        if decision is not None and not isinstance(decision, HumanDecision):
+            # Something decision-shaped but not a real HumanDecision. It never
+            # passed the constructor that makes operator_id and rationale
+            # mandatory, so it carries no attribution. Recording it as a human
+            # denial would be worse than useless - it would put a decision in
+            # the audit trail that no person made. Refuse it as invalid and
+            # keep the gate open for a real one.
+            self._emit(
+                "human_decision_rejected",
+                inst,
+                verdict=verdict,
+                step_id=step.id,
+                step_name=step.name,
+                gate_name=step.gate_name,
+                approved=False,
+                reason="not_a_human_decision",
+                offered_type=type(decision).__name__,
+                level=logging.WARNING,
+            )
+            return self._open_gate(inst, step, spec, verdict)
+
         if decision is not None:
             if not self._decision_addresses(decision, inst, step):
                 # A decision taken about some other step or instance is not a

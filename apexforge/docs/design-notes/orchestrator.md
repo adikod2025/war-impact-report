@@ -15,7 +15,7 @@ connectivity to stay correct. Sparsity is a resilience property first.
 
 ## Hierarchy enforced structurally, not by convention
 
-1. **No shape to put a trajectory in.** `MacroAction` has no waypoint, heading
+1. **No shape to put a trajectory in: `MacroAction.params` is an allowlist and forbidden terms are scanned at every depth.** `MacroAction` has no waypoint, heading
    or gimbal field and rejects those keys (plus `weapon`, `target_engagement`,
    `fire`) in `params`. `enforce_sparsity()` repeats the check inside `plan()`,
    so a subclass overriding `_macro_params()` to inject a waypoint still raises:

@@ -162,9 +162,20 @@ AUDIT = AuditLog()
 def _validate(event: Dict[str, Any]) -> None:
     missing: List[str] = []
 
-    if not any(event.get(k) for k in _ACTOR_KEYS):
+    def _present(key: str) -> bool:
+        """A value counts as present only if it identifies something.
+
+        ``"   "`` is falsy to nobody and identifies nothing; accepting it would
+        let a caller satisfy the attribution requirement with whitespace.
+        """
+        value = event.get(key)
+        if value is None or value is False:
+            return False
+        return bool(str(value).strip())
+
+    if not any(_present(k) for k in _ACTOR_KEYS):
         missing.append(f"one of {_ACTOR_KEYS}")
-    if not any(event.get(k) for k in _CORRELATION_KEYS):
+    if not any(_present(k) for k in _CORRELATION_KEYS):
         missing.append(f"one of {_CORRELATION_KEYS}")
     for key in ("assurance_verdict", "timestamp", "schema_version"):
         if not event.get(key):
@@ -225,6 +236,18 @@ def emit_event(
         "timestamp": utc_now_iso(),
         "schema_version": SCHEMA_VERSION,
     }
+    # Stamped fields are the audit record's own integrity: a caller that could
+    # supply its own `timestamp` or `schema_version` could backdate an entry or
+    # mislabel its contract version. Overwriting them is refused rather than
+    # silently ignored, so the attempt is visible.
+    reserved = [k for k in ("timestamp", "schema_version") if k in fields]
+    if reserved:
+        raise MissingMandatoryField(
+            f"emit_event() stamps {reserved} itself; a caller may not supply "
+            f"them. Pass the value under a different key if it is genuinely "
+            f"application data."
+        )
+
     event.update({k: v for k, v in fields.items() if v is not None})
 
     _validate(event)

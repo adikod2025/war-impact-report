@@ -14,7 +14,7 @@ unstable and human authority is diluted under schedule pressure.
 | Dimension | Ceiling | Enforced by |
 |---|---|---|
 | STANAG 4586 LOI | **3** (payload control + direct data receipt) | `interop.max_loi` in `config/default.yaml`; the adapter refuses LOI-4/5 |
-| Swarm autonomy level | **2** (COLLABORATIVE) | EdgeAgent default; PREDICTIVE is defined but not exercised |
+| Swarm autonomy level | **2** (COLLABORATIVE) | EdgeAgent **default only** — not enforced the way the LOI ceiling is. `SwarmLevel.PREDICTIVE` can be constructed. It buys no additional behaviour today (a PREDICTIVE tick is identical to COLLABORATIVE), so the ceiling holds in practice, but there is deliberately no `ACCEPTED_LAYER_MAX_SWARM_LEVEL` counterpart yet. Closing that asymmetry is a Layer 2 action. |
 | Mesh | In-process deterministic store-and-forward | No production bearer is claimed |
 | RUL model | Deterministic stub | No ONNX model is claimed |
 

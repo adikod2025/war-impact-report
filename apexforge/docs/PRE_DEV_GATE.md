@@ -11,7 +11,7 @@ proves it. Claims without a re-runnable command are not evidence.
 | # | Gate item | Status | Artefact | Evidence command |
 |---|---|---|---|---|
 | 1 | Core message contracts frozen and versioned; contract tests exist and are green | ✅ MET | `apexforge/contracts/core.py`, `contracts/transport.py`, `docs/CONTRACTS.md` | `pytest -m contract -q` |
-| 2 | WF-SMOKE-01 and the WorkflowEngine contract materialised in the repository and under CI | ✅ MET | `tests/test_workflow_smoke.py`, `apexforge/workflows/engine.py`, `.github/workflows/ci.yml` | `pytest -m smoke -q` |
+| 2 | WF-SMOKE-01 and the WorkflowEngine contract materialised in the repository and under CI | ✅ MET |  `tests/test_workflow_smoke.py`, `apexforge/workflows/engine.py`, `.github/workflows/ci.yml` | `pytest -m smoke -q` |
 | 3 | Mandatory log fields present and tested on all high-consequence paths | ✅ MET | `apexforge/obs/logging.py` (`emit_event` raises without them) | `pytest -m invariant -q` |
 | 4 | LOI-5 and critical-MRO human gates have timeout and escalation behaviour defined | ✅ MET | `apexforge/policy/default_policy.yaml` → `human_gates`; enforced by `PolicyPackage.human_gate()` | `pytest tests/test_foundation.py -k human_gate -q` |
 | 5 | Standard agentic system-prompt constraints adopted in the team working agreement | ✅ MET | `CLAUDE.md`, `AGENT_ROSTER.md` | file review |
@@ -41,6 +41,25 @@ proves it. Claims without a re-runnable command are not evidence.
 | 2 | Integration smoke test (Orchestrator → 3 EdgeAgents → Assurance) passes in CI | `pytest -m smoke` |
 | 3 | No high-consequence action emitted without an explicit `requires_human` / policy check | `pytest -m invariant` |
 | 4 | Logging contains the mandatory fields for every ACT and ASSIGN event | `pytest -m invariant` |
+
+## A correction worth reading before the table above
+
+The first cut of this baseline passed all of these rows while its **headline
+invariant was bypassable** (R-22): sparsity was a top-level denylist, and a
+stock `assign()` could put `heading`, `gimbal` and `weapon` on the wire through
+`Objective.area`. The suite was green over the hole because the tests asserted
+the literals the control already named.
+
+Separately, the CI that these rows cite as enforcement **had never executed**
+(R-33) — the workflow file was one directory below where GitHub looks.
+
+Both are fixed, and both are recorded in `docs/RISK_REGISTER.md` rather than
+quietly patched, because the useful lesson is not the two bugs. It is that a
+gate checklist is satisfied by *evidence*, and evidence that consists of tests
+asserting a control's own constants proves the constants exist, not that the
+property holds. The adversarial pass in `tests/test_invariants.py` now asserts
+properties — arbitrary unlisted keys, nesting, end-to-end laundering — and the
+audits that found these are described in `DEV_CYCLE_MEMORY.md` Entry 009.
 
 ## Honest statement on items 8 and 9
 

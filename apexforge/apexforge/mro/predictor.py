@@ -341,6 +341,11 @@ class WorkOrder:
     created_at: str = field(default_factory=utc_now_iso)
     policy_version: str = "unset"
     schema_version: str = SCHEMA_VERSION
+    #: Snapshot of the recommendation at the moment of approval. Compared on
+    #: every admission check so that mutating the recommendation after approval
+    #: invalidates it rather than silently carrying the operator's name onto a
+    #: different action. Set only by :meth:`HealthPredictor.approve`.
+    _approved_fingerprint: Optional[tuple] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.recommendation, WorkOrderRecommendation):
@@ -359,18 +364,42 @@ class WorkOrder:
 
     @property
     def is_approved(self) -> bool:
-        """True only for an approved state backed by an attributed decision.
+        """True only for an approved state backed by a *bound, intact* decision.
 
-        Both halves are checked. A state string set by hand is not an approval,
-        and neither is a HumanDecision that says ``approved=False``.
+        Four things are checked, because presence is not authority:
+
+        * the state says approved;
+        * a genuine :class:`HumanDecision` is attached and approves;
+        * that decision names **this** work order and **this** gate - otherwise
+          an approval for one airframe's battery swap admits another airframe's
+          scrapping, which is a stolen signature, not an approval;
+        * the recommendation has not changed since it was approved. Approval is
+          consent to a specific action on a specific platform. Mutating the
+          recommendation afterwards and submitting it forwards the operator's
+          name to something they never saw.
         """
         d = self.decision
         return (
             self.state == STATE_APPROVED
-            and d is not None
+            and isinstance(d, HumanDecision)
             and d.approved
             and bool(d.operator_id)
             and bool(d.rationale)
+            and d.workflow_instance_id == self.workflow_instance_id
+            and d.step_id == self.gate_name
+            and self._approved_fingerprint is not None
+            and self._approved_fingerprint == self._fingerprint()
+        )
+
+    def _fingerprint(self) -> tuple:
+        """What the operator actually consented to."""
+        r = self.recommendation
+        return (
+            r.platform_id,
+            r.component,
+            r.priority,
+            r.action,
+            round(float(r.estimated_rul_hours), 6),
         )
 
     @property
@@ -820,9 +849,20 @@ class HealthPredictor:
                 f"item cannot be replayed onto another."
             )
 
+        if decision.approved and decision.step_id != work_order.gate_name:
+            raise ContractViolation(
+                f"HumanDecision was made at gate {decision.step_id!r} but is "
+                f"being applied to the {work_order.gate_name!r} gate; an "
+                f"approval names what it approves."
+            )
+
         target = STATE_APPROVED if decision.approved else STATE_REJECTED
         self._transition(work_order, target)
         work_order.decision = decision
+        # Bind the approval to exactly what was approved.
+        work_order._approved_fingerprint = (
+            work_order._fingerprint() if decision.approved else None
+        )
         self._audit_transition(
             work_order,
             target,
