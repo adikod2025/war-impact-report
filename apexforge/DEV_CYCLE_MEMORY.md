@@ -484,3 +484,55 @@ and entirely unreachable; the gate that never ran; documents drifting ahead of
 code; behaviour visible only after a transient ends) and a **graduated**
 section, so that "attacked and clean" is never mistaken for "never looked at".
 
+
+### Entry 012 — Checked against an upstream FRS: two MET, three conflicts
+
+A UMDFMS Functional Requirements Specification (v1) arrived and was checked
+against the build at `10ecae8`. Result: **2 MET, 22 PARTIAL, 17 GAP, 3 CONFLICT**
+across 44 numbered requirements, written up in `docs/FRS_TRACEABILITY.md` with
+file-level evidence per row.
+
+**The finding that matters is not the count.** Three FRS requirements cannot be
+built as written without breaking something this project holds structurally:
+
+- **FR-2.2.4** ("sensor-to-shooter handoff, decoy/strike roles") and **FR-2.3.5**
+  ("recommend/assign effector") are weapons targeting and engagement. The
+  handoff package forbids them absolutely and the code enforces that through a
+  closed seven-action vocabulary and a depth-recursive forbidden-key scan. These
+  will not be implemented.
+- **FR-2.2.2** asks the Intent layer to generate routes and smoothed
+  trajectories. That is exactly what ADR-001's sparsity lock forbids. This one
+  is *not* a refusal — it is a genuine architectural disagreement between two
+  documents, and resolving it in the FRS's favour would need an ADR superseding
+  ADR-001 and would invalidate roughly a third of the invariant suite. That is
+  the user's call, not the build's.
+
+**Where the two documents actually overlap tells you more than the tally.**
+ApexForge is strongest precisely where the FRS is thinnest — audit,
+traceability, human-decision binding, invariant enforcement — and weakest
+precisely where the FRS is most detailed: sensing, fusion, COP, analytics, UI.
+The single NFR marked MET is *"every AI recommendation fully traceable"*, which
+is the one line in the FRS that describes what this build is for. They are
+descriptions of different layers of the same system, and the FRS should not be
+mistaken for a backlog for this codebase.
+
+**Two field names in this build will produce false METs in any less careful
+pass.** `group` reads as an organisational echelon (FR-2.1.2) but is a NATO UAS
+platform class. `current_role` reads as an access role (FR-2.3.2, FR-2.6.8) but
+is a mission role. Neither is a defect; both are traps for a reviewer holding
+the FRS.
+
+**The security gap is bigger than one row.** FR-2.7.1 covers cryptographic
+identity, transport encryption, zero-trust and hardware attestation — none of
+which exist. The only cryptography in the build is HMAC over the policy package,
+which is integrity of one artefact, not a security posture. It compounds R-31 /
+AB-03 (unauthenticated mesh role advertisements), which is already open. If any
+part of this FRS becomes authoritative, that row sequences first.
+
+**Method note, for whoever repeats this.** Every PARTIAL names what is missing
+in the same cell as what exists, and no requirement was marked PARTIAL on the
+strength of an adjacent feature. That discipline is what kept the MET count at
+two. The temptation in a traceability pass is to let a nearby capability launder
+a requirement into partial credit — which is Pitfall 7's documents-drift-ahead-
+of-code failure wearing a different hat, and this project has already been
+caught by it twice (R-22, R-32).
