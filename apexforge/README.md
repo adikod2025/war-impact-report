@@ -11,6 +11,34 @@ IntelliSwarm-validated Development Handoff Package v1.0 (22 August 2026).
 
 ---
 
+## Pilot quickstart
+
+Six use cases are pilot-ready. Full detail in
+[`docs/PILOT_USE_CASES.md`](docs/PILOT_USE_CASES.md); the honest scope and its
+limits in [`docs/PILOT_READINESS.md`](docs/PILOT_READINESS.md).
+
+```bash
+cd apexforge
+python3 -m pip install -e ".[test]"        # one dependency: PyYAML
+
+python3 -m apexforge.evidence --out ./pack # the evidence pack   (<1 s)
+python3 -m apexforge.ui --blackout 30      # the console, degraded
+./verify.sh                                # the full gate       (~2 min)
+```
+
+Read `pack/EVIDENCE.md`, and **record the head hash it prints** — it is what
+lets you prove later that the audit trail you were shown is the one you were
+shown.
+
+> **Scope.** This is a **simulation-and-assurance** pilot. Nothing here has
+> commanded a real aircraft, crossed a real radio, or authenticated a real
+> person, and there is no authentication or transport security (FR-2.7.1). The
+> console binds loopback only and refuses any other host. `PILOT_READINESS.md`
+> lists the six remaining hard blockers and what would have to be true to lift
+> each.
+
+---
+
 ## What this is
 
 A sovereign, open-architecture platform for managing heterogeneous drone fleets

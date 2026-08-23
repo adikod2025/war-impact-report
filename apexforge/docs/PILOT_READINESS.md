@@ -28,9 +28,10 @@ Run this before any client conversation:
 python -m apexforge.evidence --out ./evidence-pack
 ```
 
-It builds the whole pack from a live run in about a minute, discloses every open
-risk from the same run that produces the passing numbers, and prints a head hash
-the evaluator should record.
+It builds the whole pack from a live run in **under a second**, discloses every
+open risk from the same run that produces the passing numbers, and prints a head
+hash the evaluator should record. (The full gate, `./verify.sh`, takes about two
+minutes — that is the slow one.)
 
 ---
 
