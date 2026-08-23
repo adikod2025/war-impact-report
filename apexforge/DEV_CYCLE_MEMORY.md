@@ -595,3 +595,79 @@ passing tests had already run against. Measuring **completeness** rather than
 ask. That belongs in the audit backlog's attack-class list as a technique, not
 just as a finding: *pick a quantity the system has never had to report, compute
 it over runs that already pass, and read the ones that score badly.*
+
+### Entry 014 — The operator interface, and the decision it forced
+
+Built `apexforge/ui/` to the FRS's UI requirements: contracts, access control,
+view models, console, renderer, loopback server and a runnable entry point.
+**1109 tests, 98.93% coverage, verify.sh green.** Traceability moves from
+2/22/17/3 to **3 MET / 25 PARTIAL / 12 GAP / 4 CONFLICT**; §2.3 and §2.8 no
+longer carry a GAP between them.
+
+**The conflict this forced, which is the entry's real content.** FR-2.3.4 asks
+for "map-centric control... task via video feed or geospatial interface". Read
+literally that is an operator drawing a path, which is C-2 arriving through the
+interface instead of through the planner. It had been sitting as a GAP, which
+was comfortable and wrong: a gap is something nobody has built, and this was
+something that could not be built without unmaking ADR-001.
+
+The general risk is worth recording because it is not specific to this project:
+**nobody adds a waypoint field to a contract without an ADR; somebody adds a
+"click to set a point" affordance to a map in an afternoon, and the contract
+follows six weeks later because the UI needs it.** Architectural locks do not
+usually fail at the layer that holds them. They fail at the layer that has a
+deadline. [ADR-005](docs/ADR-005-ui-authority-boundary.md) decides the boundary
+explicitly — **the interface designates areas and objectives, it never expresses
+a path** — and reclassifies FR-2.3.4 GAP→CONFLICT, which is a promotion in
+honesty rather than a regression in capability.
+
+**The IX principle the whole layer is built around.** The Assurance Fabric
+treats UNKNOWN as first-class. An interface that draws a stale reading like a
+live one, or a missing one as a blank cell, silently converts *"we do not know"*
+into *"nothing is wrong"* — the most dangerous transformation a COP can perform,
+and the **default** behaviour of every dashboard that treats freshness as
+styling. So freshness is data here: every value is a `Cell` carrying its own
+`Freshness`, there is no constructor that omits it, `CopView.degraded` is
+computed in the model and the renderer *asks*, and the mission verdict is only
+as fresh as its worst input — the aggregation ran a millisecond ago, which does
+not make the answer fresh.
+
+Tested against a real blackout on the real mesh, not a stub. The test that
+discriminates is not the total blackout (the fabric already says UNKNOWN there);
+it is **one** platform quiet for three seconds: the fabric still says PASS,
+because it has not timed out, and the interface must not present that PASS as
+live. It reports AGEING.
+
+**A contract gap the UI exposed.** `_ACTOR_KEYS` was `("platform_id",
+"orchestrator_id")`. There was no actor key a *human* could be, so a console
+action would have had to borrow `orchestrator_id` and attribute a person's
+decision to a machine. Added `operator_id` — additive in the sense the project
+means it: an additional way to satisfy attribution, never a relaxation. FR-2.7.2
+asks for an audit trail of "operator actions" and until now there was no shape
+for one.
+
+**What the build could not move, and why that is the finding.** The console
+closed one genuine architectural hole — *there was no access control in this
+system at all* — and otherwise mostly converted GAP to PARTIAL. It could not
+touch sensor fusion, video, external ISR, natural language or an organisational
+hierarchy, because **an interface can only present what a system knows**. The
+rows an interface can close are the rows about presentation and authority, and
+those were already this architecture's strongest. That is a more useful result
+than a higher MET count would have been.
+
+**Deliberately not built:** natural language (FR-2.8.3's other half) — a model
+turning a sentence into an `Objective` sits directly on the authority path, and
+would need its own ADR arguing that on its merits; and authentication, which
+stays an open FR-2.7.1 GAP. The server binds loopback only and *refuses* any
+other host, because "it was only meant for local use" is not a control.
+
+**Structural, not conventional.** Four claims, asserted against source and
+rendered output rather than behaviour: no UI module may import the edge agent,
+mesh or interop layers (AST check on the import graph); the intent allowlist is
+applied at construction *and* at the POST boundary, and the rendered form's
+input names are parsed and checked; `HumanDecision` is constructed in exactly
+one module; no UI source may contain a kinetic identifier, with docstrings
+stripped first so the modules can explain why effector control does not exist
+without tripping the guard that ensures it does not. Behavioural tests prove the
+current path is safe; structural tests prove the unsafe path does not exist —
+and R-22 and R-29 both got past behavioural tests.

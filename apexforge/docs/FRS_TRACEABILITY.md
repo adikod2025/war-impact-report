@@ -22,28 +22,45 @@ ADR-001 do not merely differ in scope but **contradict each other**.
 
 ## Tally
 
-| Verdict | Count (of 44 numbered FRs) |
-|---|---|
-| MET | **2** |
-| PARTIAL | **22** |
-| GAP | **17** |
-| CONFLICT | **3** |
+| Verdict | Count (of 44 numbered FRs) | At first issue |
+|---|---|---|
+| MET | **3** | 2 |
+| PARTIAL | **25** | 22 |
+| GAP | **12** | 17 |
+| CONFLICT | **4** | 3 |
 
-*Tally unchanged since first issue. FR-2.7.4's ≥88% threshold has since been
-closed (see its row), but the requirement stays PARTIAL because its GPS clause
-is unmodelled — a requirement is not promoted for the clauses it does satisfy.*
+**Movement since first issue,** all from the operator interface build
+(`apexforge/ui/`, [ADR-005](ADR-005-ui-authority-boundary.md),
+[`UI_IX.md`](UI_IX.md)): FR-2.8.2 GAP→MET; FR-2.3.1, FR-2.3.2, FR-2.8.1 GAP→PARTIAL;
+FR-2.3.4 GAP→**CONFLICT**, which is a *reclassification, not a regression* — the
+requirement was always incompatible with ADR-001's sparsity lock, and building
+the interface forced the decision to be taken explicitly rather than left
+unmade. FR-2.6.8's role-based half is also now real, though the requirement
+stays PARTIAL on its mock ERP bridge.
 
-Two requirements are fully met. That number is low and it is meant to be read
+FR-2.7.4's ≥88% threshold was closed earlier (see its row); the requirement
+stays PARTIAL because its GPS clause is unmodelled. **A requirement is never
+promoted for the clauses it does satisfy** — that rule is what keeps the MET
+column at three.
+
+Three requirements are fully met. That number is low and it is meant to be read
 as low: ApexForge was built to the *handoff package*, whose scope is a
 three-layer autonomy control architecture with structural invariants. The FRS
 describes a full fleet-management product — inventory, COP, UI, analytics, MRO,
-security, procurement. The overlap is real but partial by construction, and the
-build has no user interface of any kind, which alone accounts for most of §2.3
-and §2.8.
+security, procurement. The overlap is real but partial by construction.
+
+The operator interface has since been built (`apexforge/ui/`, ADR-005,
+[`UI_IX.md`](UI_IX.md)), which is why §2.3 and §2.8 no longer carry a GAP
+between them. It did not move much into MET, and that is the honest outcome: an
+interface can present what a system knows, and most of what these sections ask
+for is knowledge the system does not have — sensor fusion, video, external ISR,
+natural language, an organisational hierarchy. What it *did* close is the one
+row that was a genuine architectural hole rather than a missing subsystem:
+**there was no access control in this system at all**, and now there is.
 
 ---
 
-## 1. The three conflicts — read these first
+## 1. The four conflicts — read these first
 
 These are the only findings in this document that cannot be closed by writing
 more code.
@@ -112,6 +129,28 @@ detect→track→custody chain that stops short of effector assignment. Note als
 that FR-2.3.5's own "with human approval gates" is the one part of it that
 *is* strongly built — see FR-2.2.5 and FR-2.7.2.
 
+### C-4 · FR-2.3.4 — map-centric control, "task via video feed or geospatial interface"
+
+**Status: CONFLICT — decided in [ADR-005](ADR-005-ui-authority-boundary.md).**
+
+Reclassified from GAP when the operator interface was built. Read literally, a
+map-centric control mode is one where an operator draws a path and the aircraft
+flies it — the same collision as C-2, arriving through the interface instead of
+through the planner. ADR-005 decides that **the interface designates areas and
+objectives and never expresses a path, a heading or a pointing angle**;
+"map-centric" here means *work this circle with these roles*, and how to fly it
+is the edge's decision.
+
+Camera-centric control is blocked twice over: there is no video anywhere in this
+system, and tasking through a feed would be micro-command besides.
+
+Recorded as a conflict rather than a gap because it is now a *decision*. The
+requirement was always incompatible with ADR-001; building the interface is what
+forced the incompatibility to be resolved explicitly rather than left unmade —
+which is precisely the risk ADR-005 exists to address, since nobody adds a
+waypoint field to a contract without an ADR, but somebody adds a "click to set a
+point" affordance to a map in an afternoon.
+
 ---
 
 ## 2. Per-requirement matrix
@@ -139,14 +178,14 @@ that FR-2.3.5's own "with human approval gates" is the one part of it that
 | **2.2.6** Integrate external C2 (DELTA, ATAK, Maven, Lattice, SkyKeeper) via open APIs/SDKs | **PARTIAL** | A STANAG 4586 adapter with a hard LOI-3 ceiling (`interop/stanag4586.py`) and a `Transport` protocol seam. **Missing:** none of the five named systems; no published API surface or SDK. |
 | **2.2.7** Containerised autonomous constellations; autonomous launch/recovery/recharge; 500 assets | **GAP** | Nothing. |
 
-### 2.3 Real-Time C2 and Common Operational Picture — 0 MET / 1 PARTIAL / 3 GAP / 1 CONFLICT
+### 2.3 Real-Time C2 and Common Operational Picture — 0 MET / 3 PARTIAL / 0 GAP / 2 CONFLICT
 
 | FR | Verdict | Evidence and what is missing |
 |---|---|---|
-| **2.3.1** Single-pane COP fusing telemetry, external ISR, satellite, radar, RF, intelligence | **GAP** | No UI. No radar, RF, satellite or external-ISR ingest of any kind (verified by search: no `radar`, `acoustic`, `lidar`, `fusion` in the codebase). |
-| **2.3.2** Multi-domain, multi-echelon views; role-based filtering and permissions | **GAP** | **There is no access control in the system.** No RBAC, no permissions model, no echelon concept. `current_role` is a *mission* role (searcher/tracker), not an access role — another field name that invites the wrong reading. |
+| **2.3.1** Single-pane COP fusing telemetry, external ISR, satellite, radar, RF, intelligence | **PARTIAL** | A single-pane COP now exists (`apexforge/ui/`, ADR-005, [`UI_IX.md`](UI_IX.md)): mission verdict, per-platform assurance, roles, failed checks and policy version, with freshness attached to every value. **Still missing:** the *fusion* half. No radar, RF, satellite or external-ISR ingest exists (verified: no `radar`, `acoustic`, `lidar`, `fusion` in the codebase), so this is a single pane over what the system actually knows, not over the sources FR-2.3.1 lists. The COP panel states that limit on the page itself. |
+| **2.3.2** Multi-domain, multi-echelon views; role-based filtering and permissions | **PARTIAL** | **Access control now exists** (`apexforge/ui/access.py`): five closed roles, eight permissions, deny-by-default for anything unrecognised, every refusal audited before it is raised, and navigation derived from the permission set so a tab cannot open onto a refusal. Echelon filtering honours a `metadata["echelon"]` tag. **Still missing:** authorisation sits on **unverified identity** — there is no authentication (FR-2.7.1), so this constrains an honest operator and produces an audit trail, and is not security. Multi-domain is a GAP; the registry models no organisational hierarchy (FR-2.1.2). |
 | **2.3.3** Resilient mesh, data prioritisation under contested comms, failover to edge autonomy | **PARTIAL** | The strongest item in this section: DDIL store-and-forward mesh, degraded-mode edge autonomy (`degraded` flag through perceive/decide), and a `scenario_ddil_stress` simulation. **Missing:** no intelligent data prioritisation — the mesh queues, it does not rank. |
-| **2.3.4** Camera-centric and map-centric control modes; task via video feed or map | **GAP** | No UI. Note that tasking-by-video-feed would also be micro-control and collides with C-2. |
+| **2.3.4** Camera-centric and map-centric control modes; task via video feed or map | **CONFLICT** | Reclassified from GAP now that the interface exists and the decision has been taken explicitly. Read literally, a map-centric control mode is one where an operator draws a path — which is C-2. **[ADR-005](ADR-005-ui-authority-boundary.md) decides that the interface designates areas and objectives and never expresses a path, heading or pointing angle.** Camera-centric control is doubly blocked: there is no video anywhere in this system, and tasking through a feed would be micro-control. A geospatial view that designates areas remains compatible with ADR-005 and is not built. |
 | **2.3.5** Kill-chain acceleration: detect → track → identify → prioritise → recommend/assign effector | **CONFLICT** | See **C-3**. |
 
 ### 2.4 Sensor Data Management — 0 MET / 3 PARTIAL / 0 GAP
@@ -181,7 +220,7 @@ The best-covered section of the FRS.
 | **2.6.5** Autonomous logistics: RTLS, automated inventory, robotic resupply, containerised recovery cells | **GAP** | Nothing. |
 | **2.6.6** Agent-based intelligent O&M architecture (multi-agent) that decomposes support tasks | **PARTIAL** | The system *is* multi-agent by construction (Orchestrator / Assurance Fabric / EdgeAgent, ADR-001). **Missing:** O&M itself is a single `HealthPredictor` — support tasks are not decomposed and no resources are coordinated for turnaround. |
 | **2.6.7** Payload and battery performance trends; component reliability analytics; failure-rate forecasts | **PARTIAL** | Battery trend and RUL exist. **Missing:** no payload hours, no component-level reliability analytics, no failure-rate forecasting. |
-| **2.6.8** ERP/MES integration; role-based MRO workflows for technicians, supervisors, logisticians | **PARTIAL** | `WorkOrderBridge` is a real and deliberately-placed seam for ERP/PLM. **Missing:** it is a mock, and role-based workflows do not exist (no RBAC — see FR-2.3.2). |
+| **2.6.8** ERP/MES integration; role-based MRO workflows for technicians, supervisors, logisticians | **PARTIAL** | `WorkOrderBridge` is a real and deliberately-placed seam for ERP/PLM, and the **role-based half now exists**: a `maintainer` role holds `APPROVE_WORK_ORDER`, sees a maintenance queue, and approves through `HealthPredictor.approve` (which binds the approval to a fingerprint of the approved content). **Missing:** the ERP bridge is a mock, and there are only maintainer/commander distinctions — no separate technician/supervisor/logistician workflows. |
 
 ### 2.7 Security, Resilience, Interoperability & Compliance — 1 MET / 2 PARTIAL / 2 GAP
 
@@ -193,14 +232,14 @@ The best-covered section of the FRS.
 | **2.7.4** Graceful degradation and autonomous continuation under loss of C2/GPS/nodes; ≥88% completion at 20% node failure | **PARTIAL** *(threshold closed)* | **The ≥88%-at-20% figure is now measured and asserted** — `SimulationResult.task_completion()`, `scenario_fault_tolerance` and `tests/test_fault_tolerance.py` (22 tests). Node arm: 2 of 10 destroyed (exactly 20%) → **92.06%**. C2 arm: 20% packet loss + 6 s blackout → **100%**. Both clear the floor; a 30%-kill test asserts the measurement can go red. Full write-up in [`FAULT_TOLERANCE.md`](FAULT_TOLERANCE.md). **Still missing:** FR-2.7.4 also names **GPS loss**, which is not modelled anywhere in this system — so the requirement stays PARTIAL on that clause alone, not on the threshold. |
 | **2.7.5** Classified (air-gapped/sovereign) and dual-use deployments with data segregation | **GAP** | No classification labels, no segregation, no deployment-mode concept. |
 
-### 2.8 User Experience & Human Factors — 0 MET / 2 PARTIAL / 2 GAP
+### 2.8 User Experience & Human Factors — 1 MET / 3 PARTIAL / 0 GAP
 
 | FR | Verdict | Evidence and what is missing |
 |---|---|---|
-| **2.8.1** Tablet/portable one-operator multi-asset interface with minimal cognitive load | **GAP** | There is no user interface in the system. |
-| **2.8.2** Role-based views (pilot, supervisor, maintainer, commander, analyst) | **GAP** | No UI and no RBAC. |
-| **2.8.3** Natural-language and high-level intent interfaces alongside map/video controls | **PARTIAL** | High-level intent **is** the interface — `Objective` plus a closed macro-action vocabulary is precisely what ADR-001 exists to enforce, so the intent half of this requirement is the architecture's core claim. Natural language is a GAP, and map/video control collides with C-2. |
-| **2.8.4** Training mode with digital twins and recorded mission replay | **PARTIAL** | `DigitalTwin`, audit-log replay via `reconstruct()`, and four deterministic seeded scenarios. **Missing:** no training mode wraps them. |
+| **2.8.1** Tablet/portable one-operator multi-asset interface with minimal cognitive load | **PARTIAL** | A responsive, self-contained console (`python -m apexforge.ui`): no scripts, no external fetches, inline styling, so it renders on a tablet with no network — which matters because the thing it most often reports is a link failure. Cognitive-load choices are stated and tested in [`UI_IX.md`](UI_IX.md) §2: status never signalled by colour alone, degraded banner names the affected platforms rather than showing a generic chip, forbidden panels absent rather than hidden. **Still missing:** never tested with a real operator; "minimal cognitive load" is a claim only a human-factors trial can support, and this build does not make it. |
+| **2.8.2** Role-based views (pilot, supervisor, maintainer, commander, analyst) | **MET** | All five FRS roles implemented as closed enum members with distinct panel sets (`ROLE_PERMISSIONS`, `ROLE_PANELS`). The separations are the substance and each is asserted: a pilot flies but holds no gate authority; a supervisor holds gate authority but **cannot submit the intent they would then approve**; a maintainer sees no mission COP; an analyst is strictly read-only. A panel the role lacks is never serialised, so no template bug can leak it. |
+| **2.8.3** Natural-language and high-level intent interfaces alongside map/video controls | **PARTIAL** | The high-level intent interface is now real and operable: an operator composes an `IntentDraft` (name, area, priority, sparse roles) and it routes through `assign_with_approval`, so every submission runs ADR-002's full pre-execution rule set. **Natural language is deliberately not built** — a model that turns a sentence into an `Objective` sits directly on the authority path, which ADR-001 keeps free of non-deterministic components and Pitfall 7 warns about by name; it would need its own ADR. Map/video control is C-2 / FR-2.3.4. |
+| **2.8.4** Training mode with digital twins and recorded mission replay | **PARTIAL** | Replay is now an operator-facing panel, reconstructed from the append-only audit log rather than from a separate recording — so replay and the audit trail come from one source and cannot drift, which a training mode with its own recording format can. Plus `DigitalTwin` and five deterministic seeded scenarios. **Missing:** no training *mode* wraps them — no scenario authoring, no scoring, no instructor view. |
 
 ---
 
@@ -224,9 +263,16 @@ Three observations worth recording, independent of the counts.
 **The overlap is narrow and the shape of it is consistent.** ApexForge is
 strongest exactly where the FRS is thinnest in prescription — audit,
 traceability, human-decision binding, invariant enforcement — and weakest
-exactly where the FRS is most detailed: sensing, fusion, COP, analytics, UI. The
-two documents describe different layers of the same system. Treating the FRS as
-a backlog for this codebase would misread that.
+exactly where the FRS is most detailed: sensing, fusion, analytics, and the
+knowledge a COP would fuse. The two documents describe different layers of the
+same system. Treating the FRS as a backlog for this codebase would misread that.
+
+**Building the interface demonstrated the point rather than changing it.** The
+console moved five rows and closed a real hole (access control), but it could
+not move sensing, fusion, video or natural language, because an interface can
+only present what a system knows. The rows an interface *can* close are exactly
+the rows about presentation and authority — and those are the rows this
+architecture was already strongest on.
 
 **Field names in this build invite two specific misreadings, and a reviewer
 holding the FRS will make both.** `group` reads as an organisational echelon

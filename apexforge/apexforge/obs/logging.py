@@ -45,7 +45,15 @@ __all__ = [
 # (platform, orchestrator) and two kinds of correlation id (action, workflow
 # instance); requiring literally "platform_id" everywhere would push callers
 # into inventing fake values, which defeats the purpose.
-_ACTOR_KEYS = ("platform_id", "orchestrator_id")
+# ``operator_id`` was added when the operator console landed. It is an
+# *additive* contract change in the sense ``apexforge.contracts`` means it: an
+# additional way to satisfy the attribution requirement, never a relaxation of
+# it. It is here because FR-2.7.2 asks for an audit trail of "AI decisions,
+# **operator actions**, and system state", and until the UI existed there was
+# no actor key a human could be. Without it a console action would have had to
+# borrow ``orchestrator_id`` and attribute a person's decision to a machine,
+# which is precisely the attribution failure Pitfall 4 is about.
+_ACTOR_KEYS = ("platform_id", "orchestrator_id", "operator_id")
 _CORRELATION_KEYS = ("action_id", "workflow_instance_id")
 
 MANDATORY_FIELDS = (
