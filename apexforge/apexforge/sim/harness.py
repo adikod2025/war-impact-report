@@ -73,6 +73,9 @@ __all__ = [
     "SimulationResult",
     "AgentLink",
     "SIM_DEFAULTS",
+    "PRODUCTIVE_ACTIONS",
+    "TASK_COMPLETION_FLOOR",
+    "TaskCompletion",
     "GROUND_STATION_ID",
     "MIN_AGENTS",
     "MAX_AGENTS",
@@ -123,6 +126,25 @@ SIM_DEFAULTS: Dict[str, Any] = {
 #: the node that drains platform verdicts and HUMS and feeds the Assurance
 #: Fabric, so "what the fabric knows" is exactly "what actually arrived".
 GROUND_STATION_ID = "ORCH-1"
+
+#: Action types that count as *servicing* a mission role slot.
+#:
+#: ``hold`` is the policy safe-fallback: the platform is airborne but the
+#: Assurance Fabric or local policy stopped it doing mission work. ``rtb`` is a
+#: platform going home. Both are correct, safe behaviours and neither advances
+#: the objective, so both count as an unserviced slot. Excluding them is what
+#: makes :meth:`SimulationResult.task_completion` able to *fail*: a metric that
+#: counted every airborne platform as productive would report 100% for a swarm
+#: that had been held on the ground by policy for the whole mission.
+PRODUCTIVE_ACTIONS = frozenset({"search", "track", "move", "loiter", "handover"})
+
+#: The fault-tolerance floor this project holds itself to, from FRS FR-2.7.4:
+#: ">=88% task completion under 20% node failure". Named here so the scenario,
+#: the test and the report cannot drift apart. See docs/FAULT_TOLERANCE.md for
+#: what the number means and the tasking condition under which it is reachable
+#: at all.
+TASK_COMPLETION_FLOOR = 0.88
+
 
 #: The harness is a *swarm* harness. One agent proves nothing the unit tests do
 #: not already prove, and the ceiling is the honest limit of an in-process,
@@ -219,6 +241,63 @@ class AgentLink:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class TaskCompletion:
+    """How much of the mission's demanded work the swarm actually serviced.
+
+    **The definition, precisely.** A *task slot* is one (required role, tick)
+    pair. A mission whose ``Objective.required_roles`` is ``["search"] * 9``
+    demands nine slots on every tick of the run, so a 14-tick run demands 126.
+    A slot for role ``r`` at tick ``t`` is **serviced** when some platform that
+    is still alive at tick ``t`` holds role ``r`` and flew an action in
+    :data:`PRODUCTIVE_ACTIONS`. Multiplicity is respected: nine demanded
+    ``search`` slots need nine distinct platforms searching, not one.
+
+    **Demand does not shrink when platforms die.** This is the whole point of
+    the metric and the reason it measures fault tolerance rather than
+    attrition. The mission needs what it needs; losing a platform does not
+    reduce the requirement, it reduces the capacity to meet it. A metric whose
+    denominator followed the surviving fleet would report 100% for a swarm that
+    had been reduced to a single aircraft.
+
+    **What follows arithmetically, and it matters.** One platform flies one
+    action per tick, so ``n`` surviving platforms can service at most ``n``
+    slots per tick. If a mission is tasked at full fleet capacity - demanded
+    slots equal to the fleet size - then losing 20% of the fleet caps
+    completion at 80% for the rest of the run, and the FR-2.7.4 floor of 88%
+    is **unreachable by construction**, however good the reallocation is. The
+    floor is only meaningful for a mission tasked with some slack. This is not
+    a defect in the metric; it is a real constraint on how a swarm can be
+    tasked if it is expected to survive attrition, and
+    ``docs/FAULT_TOLERANCE.md`` states it as such.
+    """
+
+    #: Slots the mission demanded across the whole run.
+    demanded: int
+    #: Slots actually serviced.
+    serviced: int
+    #: ``serviced / demanded``, or 1.0 for a mission that demanded nothing.
+    rate: float
+    #: Per-tick ``(demanded, serviced)``, so a dip is locatable rather than
+    #: merely visible in the average.
+    per_tick: Tuple[Tuple[int, int], ...] = ()
+    #: The roles that made up the demand, for the record.
+    required_roles: Tuple[str, ...] = ()
+
+    def meets(self, floor: float = TASK_COMPLETION_FLOOR) -> bool:
+        """True when the run cleared ``floor``. Ties count as clearing it."""
+        return self.rate >= float(floor)
+
+    def to_wire(self) -> Dict[str, Any]:
+        return {
+            "demanded": self.demanded,
+            "serviced": self.serviced,
+            "rate": self.rate,
+            "required_roles": list(self.required_roles),
+            "per_tick": [{"demanded": d, "serviced": s} for d, s in self.per_tick],
+        }
+
+
 @dataclass
 class SimulationResult:
     """Everything one scenario run observed.
@@ -236,6 +315,11 @@ class SimulationResult:
     n_agents: int
     packet_loss: float
     tick_duration_s: float
+
+    #: The mission's demanded roles, from ``Objective.required_roles``. Carried
+    #: on the result because task completion is meaningless without knowing
+    #: what the mission actually asked for.
+    required_roles: Tuple[str, ...] = ()
 
     #: Platform ids in creation order, and the subset still flying at the end.
     platforms: Tuple[str, ...] = ()
@@ -305,6 +389,54 @@ class SimulationResult:
         """
         return any(p == platform_id or p.startswith(f"{platform_id}:") for p in self.provenance)
 
+    def task_completion(self) -> TaskCompletion:
+        """Fraction of the mission's demanded work the swarm serviced.
+
+        See :class:`TaskCompletion` for the definition. This is the FR-2.7.4
+        measurement: run it on any scenario, degraded or not.
+
+        A platform that has been killed simply stops appearing in ``actions``
+        from the tick of its loss onwards, so "alive at tick t" is read off the
+        recorded history rather than reconstructed from ``lost`` - which keeps
+        the metric correct for a run that lost platforms for any reason,
+        including ones a future scenario has not invented yet.
+        """
+        required = tuple(self.required_roles)
+        per_tick: List[Tuple[int, int]] = []
+        demanded_total = 0
+        serviced_total = 0
+
+        demand: Dict[str, int] = {}
+        for role in required:
+            demand[role] = demand.get(role, 0) + 1
+        per_tick_demand = len(required)
+
+        for tick in range(self.ticks):
+            # What the surviving swarm actually supplied on this tick.
+            supply: Dict[str, int] = {}
+            for pid, roles in self.roles.items():
+                if tick >= len(roles):
+                    continue  # not flying: lost, or never launched
+                actions = self.actions.get(pid, [])
+                if tick >= len(actions) or actions[tick] not in PRODUCTIVE_ACTIONS:
+                    continue  # airborne but not advancing the objective
+                role = roles[tick]
+                supply[role] = supply.get(role, 0) + 1
+
+            serviced = sum(min(count, supply.get(role, 0)) for role, count in demand.items())
+            per_tick.append((per_tick_demand, serviced))
+            demanded_total += per_tick_demand
+            serviced_total += serviced
+
+        rate = 1.0 if demanded_total == 0 else serviced_total / demanded_total
+        return TaskCompletion(
+            demanded=demanded_total,
+            serviced=serviced_total,
+            rate=rate,
+            per_tick=tuple(per_tick),
+            required_roles=required,
+        )
+
     def summary(self) -> Dict[str, Any]:
         """Structured after-action record. JSON-shaped, no objects."""
         return {
@@ -315,6 +447,8 @@ class SimulationResult:
             "packet_loss": self.packet_loss,
             "tick_duration_s": self.tick_duration_s,
             "simulated_s": self.simulated_s,
+            "required_roles": list(self.required_roles),
+            "task_completion": self.task_completion().to_wire(),
             "platforms": list(self.platforms),
             "alive": list(self.alive),
             "lost": [{"platform_id": pid, "tick": t} for pid, t in self.lost],
@@ -391,6 +525,15 @@ def format_report(result: SimulationResult) -> str:
             f"  {pid}: {flown} ticks  actions="
             f"{acts or '{}'}  roles={rls or '{}'}"
         )
+
+    completion = result.task_completion()
+    add(
+        f"  task completion      : {completion.rate:.1%} "
+        f"({completion.serviced}/{completion.demanded} slots, "
+        f"roles={list(completion.required_roles)}) "
+        f"[FR-2.7.4 floor {TASK_COMPLETION_FLOOR:.0%}: "
+        f"{'MET' if completion.meets() else 'NOT MET'}]"
+    )
 
     add("")
     add("-- Mesh (DDIL) --")
@@ -850,6 +993,7 @@ class SimulationHarness:
             n_agents=self.n_agents,
             packet_loss=self.packet_loss,
             tick_duration_s=self.tick_duration_s,
+            required_roles=tuple(self.objective.required_roles),
             platforms=tuple(self.platforms),
             alive=tuple(sorted(self.alive)),
             lost=tuple(self.lost),

@@ -721,7 +721,9 @@ def test_main_runs_the_library_and_prints_each_report():
     assert failures == 0
     for name in SCENARIOS:
         assert f"after-action report: {name}" in text
-    assert "ran 4 scenario(s)" in text
+    # Derived, not hard-coded: adding a scenario to the library must not
+    # require editing an unrelated assertion about how many there are.
+    assert f"ran {len(SCENARIOS)} scenario(s)" in text
 
 
 def test_main_accepts_a_subset_and_rejects_an_unknown_name():

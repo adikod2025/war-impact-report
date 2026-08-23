@@ -24,7 +24,7 @@ confused.
 
 | # | Item | Origin | Why it is worth attacking | Status |
 |---|---|---|---|---|
-| **AB-01** | **R-21 — custody duplication after a partition heals** | Requested; found by A8 simulation | The defect is real, reproduced and pinned, but **only in one scenario at one seed**. The next audit should attack the *class*: vary agent count, blackout duration, blackout timing relative to target acquisition, partial partitions (two islands rather than total loss), and repeated partitions. Does duplication also survive a *partial* partition? Does a heal mid-acquisition produce a state the pinning test does not describe? Is there a seed where custody is dropped entirely rather than duplicated — a worse outcome nobody has looked for? | **OPEN** |
+| **AB-01** | **R-21 — custody duplication after a partition heals** | Requested; found by A8 simulation | The defect is real, reproduced and pinned, but **only in one scenario at one seed**. The next audit should attack the *class*: vary agent count, blackout duration, blackout timing relative to target acquisition, partial partitions (two islands rather than total loss), and repeated partitions. Does duplication also survive a *partial* partition? Does a heal mid-acquisition produce a state the pinning test does not describe? Is there a seed where custody is dropped entirely rather than duplicated — a worse outcome nobody has looked for? **Update (FR-2.7.4 work):** the task-completion metric reached this defect from a second direction and sharpened it — the duplication is **five-way** and it **never recovers** after the heal. It is now pinned by an inverted test in `tests/test_fault_tolerance.py` as well. The *class* is still unattacked; if anything the new evidence raises its priority, because "all platforms converge on one role and stay there" is a worse failure mode than the two-way duplication originally recorded. | **OPEN** |
 | AB-02 | The Assurance Fabric is still not connected to the Workflow Engine | V1/F6 residual after ADR-002 | ADR-002 wired the fabric into Orchestrator dispatch. The engine still takes a duck-typed collaborator and blocks when none is injected, so its assurance layer has only ever run against test stubs. Attack: can a real fabric be injected at all? Does the engine's blocking behaviour survive a fabric that raises, returns an unexpected shape, or is slow? | OPEN |
 | AB-03 | Mesh peer role advertisements are unauthenticated (R-31) | V1, out of the eight invariants | A spoofed peer claiming `role="track"` strips custody from a real platform. Now more interesting than when first raised: if ADR-004 lands, a spoofed peer with a **low platform id** takes custody from everyone. The fix for R-21 may widen this. | OPEN |
 | AB-04 | Property-based attacks on the frozen contracts | V1's closing recommendation | Every contract test asserts specific literals. The sparsity hole survived because the test enumerated six keys. Attack with generated input: arbitrary key names, deep nesting, unicode look-alikes, keys differing only by case or separator, very large payloads, self-referential structures. | OPEN |
@@ -57,6 +57,13 @@ actually produced findings here, rather than a generic checklist:
 8. **Behaviour only visible after a transient.** Correct during a fault,
    correct before it, wrong afterwards (R-21). Requires a scenario where the
    fault *ends*.
+9. **Quantities the system has never had to report.** Not a defect class but a
+   *technique*, and the one that has produced the most per unit of effort here:
+   pick a number the system has never been asked to compute, compute it over
+   runs that already pass, and read the ones that score badly. The
+   task-completion metric (FR-2.7.4) found R-21 from a second direction this
+   way, against four scenarios and 946 green tests. Measuring **completeness**
+   asks a question that assertions shaped around **correctness** cannot.
 
 ## Graduated
 

@@ -29,6 +29,10 @@ ADR-001 do not merely differ in scope but **contradict each other**.
 | GAP | **17** |
 | CONFLICT | **3** |
 
+*Tally unchanged since first issue. FR-2.7.4's ≥88% threshold has since been
+closed (see its row), but the requirement stays PARTIAL because its GPS clause
+is unmodelled — a requirement is not promoted for the clauses it does satisfy.*
+
 Two requirements are fully met. That number is low and it is meant to be read
 as low: ApexForge was built to the *handoff package*, whose scope is a
 three-layer autonomy control architecture with structural invariants. The FRS
@@ -186,7 +190,7 @@ The best-covered section of the FRS.
 | **2.7.1** Cryptographic identity, encrypted multi-band comms, zero-trust networking, hardware-attested sensor credentials | **GAP** | **This is the most significant non-conflict gap in the document and should not be softened.** The only cryptography in the build is HMAC-SHA256 over the policy package — integrity of one artefact. There is no identity, no transport encryption, no zero-trust posture, no attestation. Mesh peer role advertisements are unauthenticated, which is already tracked as **R-31 / AB-03**: a spoofed peer claiming `role="track"` can strip custody from a real platform. |
 | **2.7.2** Full audit logging of AI decisions, operator actions and system state for LOAC/ROE and AAR | **MET** | `emit_event()` refuses to emit without actor, correlation id and a valid verdict, and refuses caller-supplied timestamps or schema versions; `AuditLog` is append-only and hash-chained with `reconstruct(mission_id)`, `chain_for()` and `human_decisions()`; a static detector rejects any logging call that bypasses `emit_event`. Human decisions are attributed, bound to what they authorise, and single-use. |
 | **2.7.3** Open APIs, SDKs, MOSA/A-GRA compliance | **PARTIAL** | Frozen contracts, a `Transport` protocol seam and a STANAG 4586 adapter. **Missing:** no published API or SDK, and no MOSA or A-GRA conformance has been assessed — the build should not claim it. |
-| **2.7.4** Graceful degradation and autonomous continuation under loss of C2/GPS/nodes; ≥88% completion at 20% node failure | **PARTIAL** | Degraded-mode edge autonomy plus `scenario_attrition` and `scenario_ddil_stress` under a deterministic seeded harness. **Missing:** the ≥88%-at-20% figure is not asserted anywhere as a threshold. This is the cheapest item in the whole document to close — the scenarios already produce the data; only the assertion is absent. |
+| **2.7.4** Graceful degradation and autonomous continuation under loss of C2/GPS/nodes; ≥88% completion at 20% node failure | **PARTIAL** *(threshold closed)* | **The ≥88%-at-20% figure is now measured and asserted** — `SimulationResult.task_completion()`, `scenario_fault_tolerance` and `tests/test_fault_tolerance.py` (22 tests). Node arm: 2 of 10 destroyed (exactly 20%) → **92.06%**. C2 arm: 20% packet loss + 6 s blackout → **100%**. Both clear the floor; a 30%-kill test asserts the measurement can go red. Full write-up in [`FAULT_TOLERANCE.md`](FAULT_TOLERANCE.md). **Still missing:** FR-2.7.4 also names **GPS loss**, which is not modelled anywhere in this system — so the requirement stays PARTIAL on that clause alone, not on the threshold. |
 | **2.7.5** Classified (air-gapped/sovereign) and dual-use deployments with data segregation | **GAP** | No classification labels, no segregation, no deployment-mode concept. |
 
 ### 2.8 User Experience & Human Factors — 0 MET / 2 PARTIAL / 2 GAP
@@ -244,8 +248,19 @@ anything in §2.3 or §2.8.
 Listed because they are cheap, not because they are recommended. No work has
 been done on any of them.
 
-1. **FR-2.7.4's ≥88%-at-20% threshold** — the attrition scenario already
-   produces the completion data; only the assertion is missing.
+1. ~~**FR-2.7.4's ≥88%-at-20% threshold**~~ — **done**, see the FR-2.7.4 row
+   and [`FAULT_TOLERANCE.md`](FAULT_TOLERANCE.md). It was *not* as cheap as
+   this section originally claimed, and the correction is worth keeping:
+   the first version of this document said "the scenarios already produce the
+   completion data; only the assertion is absent." **That was wrong.** No
+   task-completion metric existed on `SimulationResult` at all, and neither the
+   `attrition` nor the `ddil` scenario could discriminate — both demand a single
+   role slot against five platforms, so both report 100% regardless of how the
+   swarm behaves. Closing it required defining the metric, deciding what the
+   denominator is (§2 of `FAULT_TOLERANCE.md`), and building a scenario at
+   exactly 20% node loss. The lesson is the one this project keeps re-learning:
+   "the data is already there" is a claim that has to be checked against the
+   code, not inferred from the presence of a nearby scenario.
 2. **FR-2.1.1's status enum and location field** — additive contract change to
    `AssetRecord`, with the usual frozen-contract discipline.
 3. **FR-2.1.3's MTBF and failure rates** — the twin already holds the history

@@ -536,3 +536,62 @@ two. The temptation in a traceability pass is to let a nearby capability launder
 a requirement into partial credit — which is Pitfall 7's documents-drift-ahead-
 of-code failure wearing a different hat, and this project has already been
 caught by it twice (R-22, R-32).
+
+### Entry 013 — FR-2.7.4 closed, and what building a metric found
+
+Asked to close the FR-2.7.4 threshold gap (">=88% task completion under 20% node
+failure"). Result: **node arm 92.06%, C2 arm 100%**, both asserted, 22 new tests,
+970 passing at 98.80% coverage. Written up in `docs/FAULT_TOLERANCE.md`.
+
+**The first thing to record is that my own estimate was wrong.** Entry 012's
+traceability document called this "the cheapest item in the whole document to
+close — the scenarios already produce the data; only the assertion is absent."
+That was false. There was **no task-completion metric on `SimulationResult` at
+all**, and neither existing scenario could discriminate: `attrition` and `ddil`
+both demand a single role slot against five platforms, so both report 100%
+whatever the swarm does. Closing it needed a metric definition, a decision about
+the denominator, and a new scenario. The claim had been inferred from the
+presence of a nearby scenario rather than checked against the code — which is
+attack class 7 (*documents drifting ahead of code*) committed in a document
+whose entire purpose was to catch that. The traceability doc now carries the
+correction in place rather than a quiet edit.
+
+**The denominator is the whole argument, and the FRS does not supply one.** The
+choice made: demand is set by the mission (`Objective.required_roles` x ticks)
+and **does not shrink when platforms die**. A metric whose denominator followed
+the surviving fleet reports 100% for a swarm reduced to one aircraft — it
+measures attrition rather than tolerance of it. `hold` and `rtb` count as
+unserviced, so a swarm held on the ground by policy scores 0%, which is the
+honest number.
+
+**An arithmetic result worth more than the headline.** One platform flies one
+action per tick, so *n* survivors service at most *n* slots per tick. At 20%
+node loss a mission tasked at **full fleet capacity** caps at 80% and **cannot
+satisfy FR-2.7.4 by construction**, however good the reallocation. The floor is
+only reachable for a mission tasked with slack (9 slots / 10 platforms gives an
+8/9 = 88.9% ceiling). The scenario states its slack in the parameter table and
+`FAULT_TOLERANCE.md` §2 states the general result, rather than quietly picking
+the tasking that passes. This is the kind of thing that would otherwise be
+discovered by whoever first tasked a real swarm at capacity.
+
+**A threshold test that cannot go red is not evidence**, so a 30%-kill run is
+driven through identical machinery and required to come out *below* the floor.
+Separately, the post-loss ticks are asserted to sit at the 8/9 arithmetic
+ceiling — "above the floor" and "at the ceiling" are different claims, and only
+the second shows reallocation actually worked.
+
+**The metric found R-21 again, from a new direction.** Applied to the
+pre-existing `ddil` scenario it reports **28.6%**. The swarm has not stopped
+working — every platform is flying `track`, all five at once, because during the
+blackout nobody hears a peer advertisement. Two details this adds to the
+register: the duplication is **five-way**, not two-way, and it **never recovers**
+(blackout lifts at tick 9, all five still tracking at tick 13). Pinned by an
+inverted test whose failure is ADR-004's acceptance criterion.
+
+**The method observation.** The metric was built to answer a documentation gap
+and it independently reproduced an open defect that four scenarios and 946
+passing tests had already run against. Measuring **completeness** rather than
+**correctness** asked a question none of the existing assertions were shaped to
+ask. That belongs in the audit backlog's attack-class list as a technique, not
+just as a finding: *pick a quantity the system has never had to report, compute
+it over runs that already pass, and read the ones that score badly.*
