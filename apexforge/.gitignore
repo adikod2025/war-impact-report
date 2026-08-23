@@ -11,3 +11,4 @@ htmlcov/
 venv/
 *.log
 sim_reports/
+evidence-pack/

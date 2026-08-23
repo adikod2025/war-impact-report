@@ -731,3 +731,68 @@ first-class; an ops console is read in a dim room for hours), focus rings appear
 for the keyboard and not the mouse, and identifiers and figures are monospaced
 with `tabular-nums` — Palantir's data-dense convention, whose reason is that
 identifiers are read by scanning a column, which proportional type defeats.
+
+### Entry 016 — Pilot readiness: the audit found my own overstatement
+
+Asked to audit for a client pilot, make it ready, and define use cases.
+**1174 tests, 98.98% coverage, verify.sh green.** Delivered
+`docs/PILOT_READINESS.md`, `docs/PILOT_USE_CASES.md`, tamper-evident and durable
+audit, and `python -m apexforge.evidence`.
+
+**The finding that mattered was in this project's own documentation, written by
+me.** `FRS_TRACEABILITY.md` described the audit log as "append-only and
+**hash-chained**" in two rows, and **FR-2.7.2 was marked MET partly on that
+property**. Append-only was true. Hash-chained was not — `chain_for()` is a
+correlation-id *query*, and the two got conflated in prose. Filed as **R-38**.
+
+That is attack class 7 (*documents drifting ahead of code*) committed inside a
+document whose entire purpose was to catch attack class 7, and it is the **third
+time** this project has been caught by that class (R-22 sparsity, R-32
+enforcement claims). The lesson is not "check harder". It is that **prose about
+a property and the property itself decay apart at a rate no amount of care
+fixes**, which is why the evidence pack computes every number at run time
+instead of transcribing any of them.
+
+Closed it by **building the property rather than retracting the claim** — a
+defence client tests an audit-trail claim first and tests it by trying to break
+it. Every record now carries `audit_seq`, `audit_prev_hash`, `audit_hash`;
+`verify_chain()` detects mutation, insertion, deletion and reordering; the tests
+are written as attacks, and two of them are written as **limitations**: tail
+truncation and wholesale rewrite are *not* detectable from the chain alone
+(R-39). Asserting what a control cannot do, as a test, is what stops
+"tamper-evident" being heard as "tamper-proof".
+
+**The evidence pack caught itself lying, twice, in the first ten minutes.** It
+printed *"Open risks: 0"* for a project with twelve, because it looked in the
+wrong directory — a silent zero in the disclosure section, which is worse than a
+crash because it looks like good news. Fixed, then it printed 8 of 12 because
+the parser counted pipe-separated fields on rows with variable cell counts.
+Both now fail loudly instead: a missing register raises, and a zero parse
+raises. When R-39 was filed the pack picked it up automatically and went to 13 —
+which is the proof the parser is live rather than a snapshot.
+
+**A design point worth keeping: the head hash must NOT be reproducible.** A test
+asserted it should be, and that test was wrong. The measurements reproduce
+exactly for a seed; the audit head hash must not, because the trail carries real
+timestamps and fresh correlation ids, and hashing to the same value would mean
+the trail records neither when anything happened nor which action was which. The
+test is now inverted and says so, so nobody "fixes" the non-determinism by
+quietly removing the timestamps.
+
+**The readiness verdict: a flight pilot is not viable; a simulation-and-assurance
+pilot is, and is what a serious evaluator wants first anyway.** Seven hard
+blockers, each with what would have to be true to lift it. B-3 is the sharpest:
+R-21 is not a gap but a *measured behavioural defect* — the `ddil` scenario
+scores 28.6% because all five platforms take custody during a blackout and none
+relinquishes afterwards.
+
+**So UC-6 is a NO-GO use case that is in the document on purpose.** The pack
+shows 28.6%, an evaluator will ask, and the only bad answer is an improvised
+one. It is presented as a finding with a deterministic reproduction, a pinning
+test whose failure is the fix's acceptance criterion, and a written decision
+document — which should reassure a client evaluating an autonomy vendor far more
+than a demo that never partitions the network.
+
+Same discipline inside the pack: the `ddil` row carries its explanation on the
+same line as the number, because an unexplained 28.6% reads as either broken or
+hidden, and both cost more than the disclosure does.
