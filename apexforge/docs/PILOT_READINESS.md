@@ -9,7 +9,11 @@ and under what terms.
 ## The verdict, first
 
 > **A flight pilot is not viable. A simulation-and-assurance pilot is viable
-> now, and is what a serious evaluator would want first anyway.**
+> now, across all six use cases, and is what a serious evaluator would want
+> first anyway.**
+
+*Updated 23 August 2026: ADR-003 and ADR-004 were decided and implemented,
+lifting blocker B-3 and promoting UC-6 from NO-GO to GO. Six of six.*
 
 Nothing in this system has ever commanded a real aircraft, crossed a real radio,
 or authenticated a real person. Offering a flight pilot would fail on the first
@@ -39,7 +43,7 @@ real aircraft or a real network.
 |---|---|---|---|
 | **B-1** | **No authentication, no transport security, no identity** (FR-2.7.1) | The console asserts who an operator is; nothing verifies it. Every human decision in the audit trail is attributed to an *asserted* identity. On an unauthenticated system, "attributed" means "labelled". | An identity provider, mTLS or equivalent, and session management. The console then stops binding loopback-only. |
 | **B-2** | **Unauthenticated mesh role advertisements** (R-31) | A spoofed peer claiming `role="track"` strips custody from a real platform. On a real bearer this is a trivial denial-of-custody attack. | Signed peer advertisements with a key the peer cannot forge. Interacts with ADR-004 — see B-3. |
-| **B-3** | **Custody duplication never recovers after a partition heals** (R-21) | Measured, not theoretical: the `ddil` scenario scores **28.6% task completion** because all five platforms take custody during a blackout and none relinquishes afterwards. This is a *behavioural defect in the autonomy layer*. | ADR-004 accepted and implemented. It is drafted and PROPOSED; changing autonomy behaviour unilaterally is what ADR-001 forbids, so it waits on a human decider. |
+| ~~**B-3**~~ | ~~Custody duplication never recovers after a partition heals (R-21)~~ | **LIFTED 23 August 2026.** ADR-004 accepted (Option A, deterministic lowest-id tie-break) and implemented; ADR-003 accepted alongside it (Option B, energy reserve before track). Custody now converges one tick after a heal and stays converged. R-15 and R-21 **CLOSED**; R-31 **narrowed** by per-platform advertisement authentication, which shipped in the same commit because the tie-break would otherwise have amplified it. | — |
 | **B-4** | **HMAC policy signing is not a hardware root of trust** (R-11) | Anyone with filesystem access can re-sign a policy package. The signed policy is the system's authority over what is permitted. | HSM or TPM-backed signing, key custody separated from the runtime. |
 | **B-5** | **No real bearer** (R-14) | The mesh is in-process. Eventual consistency is proven under a *modelled* loss process, not a contested RF environment. | Layer 2: a real transport behind the frozen `Transport` protocol, then re-run the DDIL scenarios against it. |
 | **B-6** | **SWaP unvalidated** (R-02) and **simulation fidelity unquantified** (R-04) | Latency figures come from an x86-64 CI host. Nothing has run on flight hardware, and the gap between the sim's flight model and a real airframe is unmeasured. | Bench runs on target hardware; a fidelity study against recorded flight data. |
@@ -82,7 +86,7 @@ and R-38 above.
 
 ## 3. Open risks, sorted by whether they block a pilot
 
-All thirteen, from the register, unedited. The evidence pack parses this
+All eleven, from the register, unedited (thirteen before ADR-003 and ADR-004 closed R-15 and R-21). The evidence pack parses this
 same register at build time, so the count in the pack and the count here cannot
 diverge — R-39 below was picked up by the pack automatically the moment it was
 filed.
@@ -91,14 +95,15 @@ filed.
 
 `R-02` SWaP · `R-04` simulation fidelity · `R-05` air-gap deployment ·
 `R-11` HMAC not a root of trust · `R-14` modelled not real RF ·
-`R-31` unauthenticated peer advertisements
+`R-31` peer advertisement authentication is symmetric (narrowed 23 Aug)
 
 ### Blocks specific use cases — read before scoping
 
 | Risk | Blocks | Note |
 |---|---|---|
-| **R-21** | **UC-3 (multi-agent custody)** | The 28.6% `ddil` figure. Do not demonstrate custody handover across a partition until ADR-004 lands. Demonstrating it *as a known finding* is fine and arguably better — see UC-6. |
-| **R-15** | Nothing, but disclose | `decide()` checks the track branch before the RTB battery threshold, so a platform with a target can fly below reserve. ADR-003 is PROPOSED. |
+| ~~**R-21**~~ | ~~UC-6~~ | **CLOSED.** UC-6 is now GO. The `ddil` scenario scores 57.1% rather than 28.6%; the residual is the measured cost of ADR-004's partition rule, not a defect, and the evidence pack says so on the same line as the number. |
+| ~~**R-15**~~ | Nothing | **CLOSED** by ADR-003. The reserve is now enforced on a tracking platform too. |
+| **R-31** | Nothing for a simulation pilot | **Narrowed, not closed.** Advertisement authentication is keyed per platform id, so knowing the fleet secret does not let a platform sign as another. A captured airframe still defeats it — the derivation is symmetric. |
 | **R-19** | Nothing, but confusing in a code walkthrough | Two classes named `MeshPeer`. |
 
 ### Hygiene — does not block anything
@@ -146,9 +151,10 @@ one that lists none.
 | **2 · Adversarial** | 3–4 | Client's own people try to break the invariants: forge an approval, express a waypoint, get a kinetic action to the wire, tamper the audit trail. Findings go into the risk register under the client's own IDs. | A findings list the client wrote. |
 | **3 · Scenario fit** | 5–6 | Client's CONOPS encoded as new scenarios in the harness. Their degradation profile, their fleet sizes, their gates. | A scenario library that models the client's mission, with their acceptance thresholds asserted. |
 
-**What to say if asked "when can it fly?"** Not in this pilot, and the honest
-sequence is B-3 (ADR-004) → B-2 → B-1 → B-5 → hardware. The first two are weeks;
-B-1 and B-5 are the real engineering.
+**What to say if asked "when can it fly?"** Not in this pilot. B-3 is done; the
+remaining honest sequence is B-2 (per-platform key custody, which finishes R-31)
+→ B-1 (identity and transport security) → B-5 (a real bearer) → hardware. B-1
+and B-5 are the real engineering.
 
 **What must be in the contract.** That the deliverable is an assurance and
 simulation evaluation; that no flight-hardware or RF performance claim is made;

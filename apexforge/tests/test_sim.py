@@ -828,35 +828,42 @@ def test_an_unknown_mission_verdict_is_not_counted_as_a_ci_failure():
 
 
 @pytest.mark.sim
-def test_R21_custody_duplication_persists_after_the_blackout_heals():
-    """Pins the known defect R-21 so it cannot change unnoticed.
+def test_custody_converges_to_one_platform_after_the_partition_heals():
+    """R-21, closed. **This test used to assert the opposite.**
 
-    This test asserts the **current, defective** behaviour deliberately. During
-    a blackout every platform independently takes ``track`` — correct, since
-    nobody can deconflict blind. But when the link returns none of them
-    relinquish, because ``decide()`` consults ``peer_owns_track`` only when its
-    prior role is not already ``track``. Multiple simultaneous trackers persist
-    to mission end.
+    It pinned the defect: during a blackout every platform independently took
+    ``track`` - correct, since nobody can deconflict blind - and when the link
+    returned none of them relinquished, so duplicate custody persisted to
+    mission end. Its docstring said it would "fail loudly the moment someone
+    implements a relinquish rule, at which point the assertion below should be
+    inverted and R-21 closed". That is what happened, and this is the inversion.
 
-    Fixing that is a design decision about autonomy behaviour, not a bug fix,
-    and ADR-001 reserves those for an ADR. Until that decision is taken, this
-    test does two jobs: it proves the defect is real and deterministic rather
-    than a story in a risk register, and it will **fail loudly** the moment
-    someone implements a relinquish rule — at which point the assertion below
-    should be inverted and R-21 closed.
+    ADR-004 Option A: deterministic tie-break on platform id.
 
-    See docs/RISK_REGISTER.md R-21.
+    See docs/ADR-004-custody-relinquish.md, docs/RISK_REGISTER.md R-21.
     """
     result = run_scenario("ddil", seed=20260822)
 
-    final = result.trackers_at(result.ticks - 1)
-    assert len(final) > 1, (
-        "R-21 appears to be fixed: custody is now single-valued after the "
-        "partition healed. Invert this assertion, close R-21 in "
-        "docs/RISK_REGISTER.md, and record the ADR that authorised the change."
+    # During the partition, duplication is correct and still expected.
+    blackout = result.blackout_ticks
+    assert blackout, "the scenario must actually partition the fabric"
+    assert len(result.trackers_at(blackout[-1])) > 1, (
+        "a platform must not yield merely because it cannot hear peers - "
+        "loss of comms must never cause loss of the target"
     )
 
-    # And the agents really did keep flying throughout - the duplication is a
-    # deconfliction failure, not a crash or a stall.
-    assert result.ticks > 0
+    # One tick after the link returns, custody is single-valued.
+    healed = blackout[-1] + 1
+    assert len(result.trackers_at(healed)) == 1, (
+        f"converges in one tick: t{healed} shows {result.trackers_at(healed)}"
+    )
+
+    # And it stays that way to mission end, with no oscillation.
+    for tick in range(healed, result.ticks):
+        assert len(result.trackers_at(tick)) == 1, f"t{tick} re-duplicated"
+
+    # The winner is the lowest platform id among the claimants.
+    assert result.trackers_at(result.ticks - 1) == [min(result.platforms)]
+
+    # And the agents really did keep flying throughout.
     assert all(result.roles_at(result.ticks - 1).values())

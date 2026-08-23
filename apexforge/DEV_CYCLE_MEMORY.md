@@ -796,3 +796,64 @@ than a demo that never partitions the network.
 Same discipline inside the pack: the `ddil` row carries its explanation on the
 same line as the number, because an unexplained 28.6% reads as either broken or
 hidden, and both cost more than the disclosure does.
+
+### Entry 017 — Two autonomy decisions taken; six of six use cases GO
+
+The repository owner granted explicit authorisation to make all six pilot use
+cases ready, which is the human decision ADR-001 reserves and ADR-003/ADR-004
+had been waiting on since Entry 011. Both accepted, both implemented.
+**1189 tests, 98.91% coverage, verify.sh green. R-15 and R-21 CLOSED, R-31
+narrowed, UC-6 promoted NO-GO → GO.**
+
+**ADR-003 (Option B): the energy branch now runs before the track branch.** The
+reserve had existed in policy and been enforced on every platform *except the
+one doing the mission*. The predicted consequence held exactly: **the custody
+handoff fell out of the deconfliction that already existed** — the returning
+platform advertises `rtb`, a peer hears no tracker and takes it — so no new
+protocol was needed, which is why the ADR preferred a reorder to a bespoke
+handover mechanism. A second behaviour got pinned on the way: **the return is
+not interruptible**, because `rtb` sits outside `NEGOTIABLE_ROLES` and the next
+detection therefore cannot drag a low-fuel platform back onto a target. Correct,
+and now asserted rather than incidental.
+
+**ADR-004 (Option A): deterministic lowest-platform-id tie-break.** Measured on
+the real scenario: during the blackout all five hold custody, and **one tick
+after the link returns it is single-valued** and stays so to mission end.
+Converges in one tick, cannot oscillate, and degrades correctly — hearing nobody
+changes nothing, because a platform that yielded when it could not *hear* a peer
+would lose the target exactly when the link degraded.
+
+**The consequence I had flagged against myself, and honoured.** ADR-004's own
+text noted that rewarding a low id would make R-31 worse: a spoofed peer
+claiming `UAV-000` would strip custody from the entire fleet at once. Shipping
+the tie-break without the mitigation would have been a **self-inflicted
+regression**, so per-platform advertisement authentication landed in the same
+commit. The key is derived from the fleet secret *and the advertiser's id*, so
+knowing the secret does not let a platform sign as a different one, and a
+platform holding a secret refuses unsigned claims entirely — two states only, no
+key anywhere or every claim verified. **R-31 narrows; it does not close**, and
+the register says so: the derivation is symmetric, so a captured airframe still
+defeats it.
+
+**A refinement the ADR sketch did not anticipate, found by writing the test.**
+Identity is required to *take* custody but not to *prevent* it. An anonymous
+advertisement must never outrank a named one in a tie-break — but it should
+still make a *non-tracking* platform yield, because that direction is
+conservative and prevents duplicate custody. My first implementation dropped
+anonymous claims everywhere and broke two existing tests; the tests were right.
+The two directions now read the same parsed advertisements with deliberately
+different evidence bars.
+
+**The `ddil` number changed meaning, not just value: 28.6% → 57.1%.** It is still
+below the floor, and it is no longer a defect — it is **the measured price of
+ADR-004's partition rule**. Six blackout ticks where every platform legitimately
+tracks the detection it can see, and the mission's demanded `search` slot goes
+unserviced. Having a number for the cost of a deliberate decision is worth more
+than an assurance that the decision is fine, and the evidence pack now says
+exactly that on the same line as the figure.
+
+**Both pinning tests did their job.** Each asserted the *defective* behaviour on
+purpose, with a docstring saying its failure would be the fix's acceptance
+criterion. Both failed the moment the rule landed, and both were inverted rather
+than deleted. That is the pattern to keep: a known defect gets a test that
+passes today and fails when it is fixed, and the docstring says so.

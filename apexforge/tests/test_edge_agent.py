@@ -298,14 +298,92 @@ def test_collaborative_levels_back_off_when_a_peer_owns_the_track(audit, level):
     assert a.state.mission_role == "search"
 
 
-def test_the_platform_already_tracking_keeps_custody(audit):
-    """Custody must not oscillate when two platforms both advertise 'track'."""
+def test_a_tracking_platform_relinquishes_to_a_lower_id(audit):
+    """ADR-004, Option A. **This test used to assert the opposite.**
+
+    It was the unit-level pin on R-21: a platform already holding custody never
+    re-examined the question, so duplicate custody established during a
+    partition survived the heal. Its failure was the fix's acceptance
+    criterion, and this is that failure, inverted.
+    """
     a = EdgeAgent("UAV-003", audit=audit)
     a.state.mission_role = "track"
     action = a.decide(
-        {"battery": 0.9, "has_target": True, "primary_target": "T1"}, [_peer("track")]
+        {"battery": 0.9, "has_target": True, "primary_target": "T1"},
+        [_peer("track", platform_id="UAV-002")],
+    )
+    assert action.type == "search", "the lower id keeps custody"
+
+
+def test_a_tracking_platform_keeps_custody_against_a_higher_id(audit):
+    """The other half of the tie-break. Without this, both would yield and the
+    target would be dropped entirely - a worse outcome than duplication."""
+    a = EdgeAgent("UAV-001", audit=audit)
+    a.state.mission_role = "track"
+    action = a.decide(
+        {"battery": 0.9, "has_target": True, "primary_target": "T1"},
+        [_peer("track", platform_id="UAV-009")],
     )
     assert action.type == "track"
+
+
+def test_a_tracking_platform_that_hears_nobody_keeps_custody(audit):
+    """The property that made the original guard exist, and it still holds.
+
+    Loss of comms must never cause loss of the target. A platform that yielded
+    because it could not *hear* a peer would drop custody exactly when the link
+    degraded, which is the failure mode the partition behaviour exists to
+    prevent.
+    """
+    a = EdgeAgent("UAV-009", audit=audit)
+    a.state.mission_role = "track"
+    action = a.decide({"battery": 0.9, "has_target": True, "primary_target": "T1"}, [])
+    assert action.type == "track"
+
+
+def test_the_tie_break_converges_in_one_tick_and_cannot_oscillate(audit):
+    """Every platform computes the same answer from the same advertisements.
+
+    Three platforms all holding custody, all hearing each other: after one
+    decision each, exactly one is still tracking - and running it again does
+    not hand custody back.
+    """
+    ids = ["UAV-001", "UAV-002", "UAV-003"]
+    agents = {}
+    for pid in ids:
+        agent = EdgeAgent(pid, audit=audit)
+        agent.state.mission_role = "track"
+        agents[pid] = agent
+
+    frame = {"battery": 0.9, "has_target": True, "primary_target": "T1"}
+    for _round in range(2):
+        claims = [_peer("track", platform_id=p) for p in ids]
+        outcomes = {
+            pid: agent.decide(frame, [c for c in claims if c["platform_id"] != pid])
+            for pid, agent in agents.items()
+        }
+        trackers = [pid for pid, act in outcomes.items() if act.type == "track"]
+        assert trackers == ["UAV-001"], f"round {_round}: {trackers}"
+
+
+def test_an_unidentified_claim_cannot_take_custody_but_can_still_prevent_it(audit):
+    """The asymmetry that keeps the tie-break safe.
+
+    An advertisement that will not say who is making it may still make a
+    *non-tracking* platform yield - that is conservative, it prevents duplicate
+    custody. It must never take custody *from* a platform that holds it, which
+    would be an anonymous claim outranking a named one.
+    """
+    anonymous = {"topic": TOPIC_ROLE, "role": "track"}
+    frame = {"battery": 0.9, "has_target": True, "primary_target": "T1"}
+
+    holder = EdgeAgent("UAV-005", audit=audit)
+    holder.state.mission_role = "track"
+    assert holder.decide(frame, [anonymous]).type == "track", "cannot be displaced"
+
+    idle = EdgeAgent("UAV-006", audit=audit)
+    idle.state.mission_role = "search"
+    assert idle.decide(frame, [anonymous]).type == "search", "still yields"
 
 
 def test_unassigned_role_resolves_to_the_default_role(agent):
@@ -988,3 +1066,194 @@ def test_logging_configuration_does_not_break_the_loop(agent, capsys):
             assert parsed["schema_version"] == SCHEMA_VERSION
     finally:
         logging.getLogger("apexforge").handlers.clear()
+
+
+# ===========================================================================
+# ADR-003: the energy reserve, and the custody handoff that falls out of it
+# ===========================================================================
+
+
+def test_a_tracking_platform_below_reserve_returns_to_base(audit):
+    """ADR-003 Option B. **This case was never asserted, which is why R-15 survived.**
+
+    The handoff's pseudocode evaluated the track branch before the energy
+    branch, so a platform holding a target kept tracking below its
+    return-to-base reserve, indefinitely, until it could no longer fly. The
+    published tests only ever exercised the *no target* path - where the
+    reserve did fire - so the reserve looked enforced while being enforced on
+    every platform except the one doing the mission.
+    """
+    a = EdgeAgent("UAV-004", audit=audit)
+    a.state.mission_role = "track"
+    action = a.decide({"battery": 0.05, "has_target": True, "primary_target": "T1"}, [])
+
+    assert action.type == "rtb", "the reserve is real, or it is not a reserve"
+
+
+def test_the_reserve_applies_whether_or_not_a_target_is_held(audit):
+    """Both sides of the branch that used to disagree with itself.
+
+    Two agents rather than one: a platform that has committed to ``rtb`` adopts
+    that as its role, and ``rtb`` is not a negotiable role, so it does not
+    immediately re-take a track on the next tick. That is correct - a platform
+    returning to base should not be pulled back onto a target by the next
+    detection - but it means reusing one agent would test the wrong thing.
+    """
+    low = EdgeAgent("UAV-004", audit=audit)
+    assert low.decide({"battery": 0.05, "has_target": False}, []).type == "rtb"
+
+    healthy = EdgeAgent("UAV-005", audit=audit)
+    assert (
+        healthy.decide(
+            {"battery": 0.9, "has_target": True, "primary_target": "T"}, []
+        ).type
+        == "track"
+    )
+
+
+def test_a_platform_committed_to_rtb_is_not_pulled_back_by_a_new_detection(audit):
+    """A consequence of ADR-003 worth pinning: the return is not interruptible.
+
+    Once the reserve fires, the platform adopts ``rtb`` as its role, and ``rtb``
+    is outside NEGOTIABLE_ROLES - so the next detection does not drag it back
+    onto a target it no longer has the fuel to hold.
+    """
+    a = EdgeAgent("UAV-004", audit=audit)
+    assert a.decide({"battery": 0.05, "has_target": True, "primary_target": "T"}, []).type == "rtb"
+    assert a.state.mission_role == "rtb"
+    assert a.decide({"battery": 0.9, "has_target": True, "primary_target": "T"}, []).type == "search"
+
+
+def test_a_returning_platform_hands_custody_over_without_new_protocol(audit):
+    """The consequence ADR-003 predicted, end to end over a real mesh.
+
+    No new message type, no acknowledgement, no orchestrator: the platform that
+    drops below reserve stops tracking and advertises ``rtb``; its peer then
+    hears no tracker and takes the track itself. That the handoff falls out of
+    the deconfliction which already existed is *why* ADR-003 recommended the
+    reorder over a bespoke handover protocol.
+    """
+    holder = EdgeAgent("UAV-001", mesh=MeshPeer("UAV-001"), audit=audit)
+    peer = EdgeAgent("UAV-002", mesh=MeshPeer("UAV-002"), audit=audit)
+
+    # UAV-001 takes the track; UAV-002 hears it and searches.
+    assert holder.tick(TARGET_FRAME).type == "track"
+    for topic, payload in holder.mesh.published:
+        peer.mesh.inject({"topic": topic, **payload})
+    assert peer.tick(TARGET_FRAME).type == "search"
+
+    # UAV-001 drops below reserve and returns to base.
+    holder.mesh.published.clear()
+    assert holder.tick({"detections": [{"id": "T1"}], "battery": 0.05}).type == "rtb"
+
+    # Its advertisement now says rtb, so UAV-002 hears no tracker and takes it.
+    peer.mesh.published.clear()
+    for topic, payload in holder.mesh.published:
+        peer.mesh.inject({"topic": topic, **payload})
+    assert peer.tick(TARGET_FRAME).type == "track", "custody handed over"
+
+
+# ===========================================================================
+# R-31: authenticated role advertisements
+# ===========================================================================
+
+
+SECRET = "fleet-secret-for-tests"
+
+
+def _signed_peer(advertiser, role, agent):
+    """A role advertisement signed as ``advertiser`` would sign it."""
+    return {
+        "topic": TOPIC_ROLE,
+        "platform_id": advertiser,
+        "role": role,
+        "policy_version": agent.policy_version,
+        "auth": agent._role_tag(advertiser, role, agent.policy_version),
+    }
+
+
+def test_an_authenticated_agent_signs_its_own_advertisements(audit):
+    a = EdgeAgent("UAV-001", mesh=MeshPeer("UAV-001"), audit=audit, role_secret=SECRET)
+    a.tick(TARGET_FRAME)
+
+    role_msgs = [p for t, p in a.mesh.published if t == TOPIC_ROLE]
+    assert role_msgs and role_msgs[0]["auth"]
+    assert role_msgs[0]["auth"] == a._role_tag(
+        "UAV-001", role_msgs[0]["role"], a.policy_version
+    )
+
+
+def test_a_spoofed_low_id_claim_cannot_strip_custody(audit):
+    """The attack ADR-004's tie-break would otherwise have created.
+
+    Rewarding the lowest platform id means an attacker who can claim
+    ``UAV-000`` wins every tie-break and strips custody from the whole fleet.
+    That is why R-31's mitigation shipped in the same change as the tie-break
+    rather than after it.
+    """
+    holder = EdgeAgent("UAV-005", audit=audit, role_secret=SECRET)
+    holder.state.mission_role = "track"
+    frame = {"battery": 0.9, "has_target": True, "primary_target": "T1"}
+
+    forged = {
+        "topic": TOPIC_ROLE,
+        "platform_id": "UAV-000",
+        "role": "track",
+        "auth": "not-a-valid-tag",
+    }
+    assert holder.decide(frame, [forged]).type == "track", "forged claim ignored"
+
+    unsigned = {"topic": TOPIC_ROLE, "platform_id": "UAV-000", "role": "track"}
+    assert holder.decide(frame, [unsigned]).type == "track", "unsigned claim ignored"
+
+
+def test_a_genuine_lower_id_claim_still_wins(audit):
+    """The mitigation must not break the rule it protects."""
+    holder = EdgeAgent("UAV-005", audit=audit, role_secret=SECRET)
+    holder.state.mission_role = "track"
+    genuine = _signed_peer("UAV-000", "track", holder)
+
+    action = holder.decide(
+        {"battery": 0.9, "has_target": True, "primary_target": "T1"}, [genuine]
+    )
+    assert action.type == "search"
+
+
+def test_a_platform_cannot_mint_a_tag_for_a_different_advertiser(audit):
+    """The key is derived per platform id, so knowing the fleet secret is not
+    enough to impersonate a specific peer's identity in a tie-break."""
+    a = EdgeAgent("UAV-005", audit=audit, role_secret=SECRET)
+    assert a._role_tag("UAV-000", "track", "1.0") != a._role_tag(
+        "UAV-001", "track", "1.0"
+    )
+
+
+def test_an_agent_with_a_secret_refuses_unsigned_claims_entirely(audit):
+    """Enabling authentication must not silently leave a hole open."""
+    a = EdgeAgent("UAV-005", audit=audit, role_secret=SECRET)
+    unsigned = {"topic": TOPIC_ROLE, "platform_id": "UAV-002", "role": "track"}
+    assert a.peer_claims([unsigned]) == []
+    assert a.peer_roles([unsigned]) == []
+
+
+def test_an_agent_with_no_secret_accepts_unsigned_claims(audit):
+    """The in-process harness and the unit tests have no bearer to attack.
+
+    Two states only - no key anywhere, or every claim verified. There is no
+    default secret, because a hard-coded fleet secret is not a secret and a
+    default would make the unauthenticated case indistinguishable from a
+    misconfigured authenticated one.
+    """
+    a = EdgeAgent("UAV-005", audit=audit)
+    assert a._role_secret is None
+    unsigned = {"topic": TOPIC_ROLE, "platform_id": "UAV-002", "role": "track"}
+    assert a.peer_claims([unsigned]) == [("UAV-002", "track")]
+
+
+def test_the_secret_can_be_supplied_by_configuration(audit):
+    a = EdgeAgent(
+        "UAV-005",
+        config=load_config({"edge": {"role_secret": SECRET}}),
+        audit=audit,
+    )
+    assert a._role_secret == SECRET.encode("utf-8")

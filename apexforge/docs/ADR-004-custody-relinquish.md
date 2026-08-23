@@ -1,13 +1,38 @@
 # ADR-004: Custody Relinquish After a Network Partition Heals
 
-**Status:** 🟡 **PROPOSED — awaiting decision**
+**Status:** ✅ **ACCEPTED**
 **Date raised:** 22 August 2026
-**Deciders required:** Product + Architecture + Edge lead
-**Addresses:** R-21 in [`RISK_REGISTER.md`](RISK_REGISTER.md)
+**Date decided:** 23 August 2026
+**Deciding authority:** Repository owner (adil.kodsi@gmail.com), granting explicit
+authorisation to proceed with all changes required to make all six pilot use
+cases ready. Recorded here because ADR-001 reserves autonomy-behaviour changes
+for a named human decider, and this is that record.
+**Decision:** **Option A** — deterministic tie-break on platform id, lowest keeps custody.
+**Addresses:** R-21 in [`RISK_REGISTER.md`](RISK_REGISTER.md) — **CLOSED**
 **Relates to:** [ADR-001](ADR-001-orchestration.md) (decentralized negotiation), WF-02, WF-03, WF-06
 
-> This document does **not** record a decision. ADR-001 reserves
-> autonomy-behaviour changes for named human deciders.
+> **Decided and implemented.** Option A is in `apexforge/edge_agent/core.py`
+> (`EdgeAgent._yields_custody_to`). Measured end to end on the DDIL scenario:
+> during the blackout all five platforms hold custody, and **one tick after the
+> link returns it is single-valued** and stays that way to mission end.
+>
+> **One consequence required a second change in the same commit.** This ADR
+> noted that the tie-break rewards a low platform id; on an unauthenticated
+> bearer that turns R-31 from "a spoofed peer can claim a role" into "a spoofed
+> peer claiming `UAV-000` strips custody from the entire fleet at once".
+> Shipping the tie-break without a mitigation would have been a self-inflicted
+> regression, so role advertisements are now authenticated with a per-platform
+> HMAC. R-31 **narrows**; it does not close — an attacker who extracts the
+> fleet secret from a captured airframe still defeats it, because the
+> derivation is symmetric.
+>
+> **A refinement the sketch did not anticipate.** Identity is required to
+> *take* custody but not to *prevent* it. An advertisement with no
+> `platform_id` cannot win a tie-break — an anonymous claim must never outrank
+> a named one — but it still makes a *non-tracking* platform yield, which is
+> the conservative direction and prevents duplicate custody. The asymmetry is
+> asserted by
+> `test_an_unidentified_claim_cannot_take_custody_but_can_still_prevent_it`.
 
 ---
 

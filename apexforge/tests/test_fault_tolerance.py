@@ -313,44 +313,45 @@ def test_the_c2_arm_flew_the_mission_through_the_blackout_not_around_it():
 # ===========================================================================
 
 
-def test_the_ddil_scenario_scores_badly_and_the_reason_is_the_open_r21_defect():
-    """Not a failure of FR-2.7.4 - a pinning test for a defect already open.
+def test_the_ddil_scenario_scores_below_the_floor_and_the_reason_is_now_a_cost(sub=None):
+    """**This test used to say the reason was R-21. It is not, any more.**
 
-    Applying the metric to the pre-existing ``ddil`` scenario reports 28.6%
-    task completion, and the cause is worth recording precisely because it is
-    **not** what it looks like. The swarm has not stopped working. Every
-    platform is flying ``track`` on every tick. The mission demanded ``search``
-    and got nothing, because during the blackout no peer role advertisements
-    arrive, so every platform concludes no peer owns the track and all five
-    take custody at once.
+    Before ADR-004, `ddil` scored 28.6% because all five platforms took custody
+    during the blackout and **never relinquished** - the duplication survived
+    the heal and persisted to mission end. That was a defect.
 
-    That is R-21 (AB-01), reached from a completely different direction: the
-    original finding came from a seeded attrition run, this comes from a
-    completeness metric. Two details this view adds to the register entry:
+    It now scores 57.1%, and what remains is not a defect but the **measured
+    cost of a deliberate decision**. ADR-004 states that a platform must not
+    yield merely because it cannot hear peers, since losing the target because
+    the link degraded would be worse than duplicating custody. So during the
+    six blackout ticks every platform legitimately tracks the detection it can
+    see, the mission's demanded `search` slot goes unserviced, and the metric
+    reports that honestly.
 
-    * the duplication is **five-way**, not two-way;
-    * it **never recovers**. The blackout lifts at tick 9 and all five are
-      still tracking at tick 13, because ``prior_role != "track"`` stops a
-      platform that already holds custody from ever re-examining the question.
-
-    This test pins the broken behaviour. When R-21 is fixed it will fail, and
-    that failure is the fix's acceptance criterion - at which point this test
-    should be inverted, not deleted.
+    Custody converges one tick after the link returns, and the recovered ticks
+    score again. The residual gap is the price of the partition rule, and it is
+    worth having a number for it rather than an assurance that it is fine.
     """
     result = scenario_ddil_stress()
     completion = result.task_completion()
 
-    assert not completion.meets(), (
-        "the ddil scenario now clears the floor - if R-21 was fixed, invert "
-        "this test; if the scenario changed, re-derive the expectation"
+    assert not completion.meets(), "the blackout ticks still cost the mission"
+    assert completion.rate > 0.5, (
+        "if this is back near 28% the relinquish rule has regressed"
     )
 
-    # The swarm is working; it is working on the wrong thing, together.
-    last_tick = result.ticks - 1
-    roles = result.roles_at(last_tick)
-    assert set(roles.values()) == {"track"}, roles
-    assert len(roles) == result.n_agents, "all five, not a subset"
-    assert last_tick > max(result.blackout_ticks), "and long after the link came back"
+    blackout = result.blackout_ticks
+    # During the partition: everyone tracks, nobody searches. Deliberate.
+    for tick in blackout:
+        assert set(result.roles_at(tick).values()) == {"track"}, tick
+
+    # One tick after it heals: custody is single-valued and searching resumes.
+    healed = blackout[-1] + 1
+    assert len(result.trackers_at(healed)) == 1
+    assert "search" in result.roles_at(healed).values()
+
+    # And it stays converged to mission end.
+    assert len(result.trackers_at(result.ticks - 1)) == 1
 
     for actions in result.actions.values():
         assert set(actions) <= PRODUCTIVE_ACTIONS, "nobody held or went home"

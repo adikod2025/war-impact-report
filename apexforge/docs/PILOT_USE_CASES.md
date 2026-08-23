@@ -4,8 +4,9 @@ Six use cases, each framed as **a question a client actually asks** rather than
 as a feature. Each carries the command that demonstrates it, an acceptance
 criterion that could fail, the requirements it covers, and its limitations.
 
-Read [`PILOT_READINESS.md`](PILOT_READINESS.md) first — it explains why four are
-GO, one is GO-WITH-DISCLOSURE, and one is NO-GO.
+Read [`PILOT_READINESS.md`](PILOT_READINESS.md) first. **All six are now GO**:
+UC-6 was NO-GO until 23 August 2026, when ADR-003 and ADR-004 were decided and
+implemented.
 
 | # | Question | Status |
 |---|---|---|
@@ -14,7 +15,7 @@ GO, one is GO-WITH-DISCLOSURE, and one is NO-GO.
 | UC-3 | How much of the mission still gets done when we lose aircraft? | **GO** |
 | UC-4 | After an incident, can we reconstruct who decided what? | **GO** |
 | UC-5 | How do you *prove* it can't be made to do targeting? | **GO** |
-| UC-6 | Can the swarm hand off custody across a comms partition? | **NO-GO** — open defect |
+| UC-6 | Can the swarm hand off custody across a comms partition? | **GO** — closed 23 Aug 2026 |
 
 ---
 
@@ -184,33 +185,60 @@ that stops short of effector assignment.
 
 ## UC-6 · "Can the swarm hand off custody across a comms partition?"
 
-**Status: NO-GO. Do not demonstrate this as a capability.**
+**Status: GO.** Was NO-GO until 23 August 2026. R-21 is closed by
+[ADR-004](ADR-004-custody-relinquish.md), and the energy-reserve half by
+[ADR-003](ADR-003-low-battery-custody.md).
 
-**Why it is here.** Because the evidence pack shows the `ddil` scenario at
-**28.6% task completion**, an evaluator *will* ask, and the only bad answer is an
-improvised one.
+**Why a client asks.** It is the question that separates a swarm from a group of
+drones. Everyone can hand off custody on a clean link.
 
-**What is actually true.** Custody handover works during normal operation and
-during a partition. It does **not** recover after the partition heals: during a
-blackout no peer role advertisements arrive, every platform concludes nobody
-owns the track, all five take custody at once, and none relinquishes when the
-link returns — because a platform already tracking never re-examines the
-question. **R-21**, reproduced deterministically at a fixed seed, pinned by a
-test, with **ADR-004** drafted and PROPOSED.
+**Demonstrate**
+```
+python -m pytest tests/test_sim.py -k custody_converges -v
+python -m pytest tests/test_edge_agent.py -k "custody or reserve or spoofed" -v
+```
 
-**How to handle it in the room.** Present it as a finding, not a gap. It was
-found by simulation — the "re-role logic that never ran in anger" symptom the
-handoff package predicts — and then found *again independently* by the
-task-completion metric built for a different requirement. It has a deterministic
-reproduction, a pinning test whose failure is the fix's acceptance criterion, and
-a written decision document with four options and a recommendation.
+**Acceptance criteria**
+- **During** a partition, every platform that sees the target holds custody, and
+  none yields. A platform must never drop the target because it cannot *hear* a
+  peer — that would make loss of comms cause loss of the target.
+- **One tick** after the link returns, custody is single-valued.
+- It stays single-valued to mission end — no oscillation. Every platform
+  computes the same answer from the same advertisements, so there is no state in
+  which two each decide the other should hold.
+- The winner is deterministic (lowest platform id), which matters because this
+  behaviour is only observable in simulation.
+- A platform below its return-to-base reserve relinquishes and returns; a peer
+  picks the track up **with no new protocol**.
+- A **spoofed** low-id claim cannot strip custody from anyone.
 
-A client evaluating an autonomy vendor should be far more reassured by that than
-by a demo that never partitions the network.
+**Covers** FR-2.2.3, FR-2.7.4 · ADR-003, ADR-004
 
-**Blocked until** ADR-004 is accepted and implemented. It waits on a human
-decider because ADR-001 forbids changing autonomy behaviour unilaterally — which
-is itself worth showing.
+**Limitations, and volunteer these.**
+
+The `ddil` scenario still scores **57.1%** task completion, below the 88% floor,
+and that number is in the evidence pack. It is **not** a defect: ADR-004 decides
+that a platform must not yield merely because it cannot hear peers, so during
+the six blackout ticks every platform tracks the detection it can see and the
+mission's demanded `search` slot goes unserviced. **The residual gap is the
+measured price of the partition rule.** Having a number for it is better than an
+assurance that it is fine.
+
+**R-31 narrowed but did not close.** ADR-004's tie-break rewards a low platform
+id, which would have made a spoofed `UAV-000` able to strip custody from the
+whole fleet — so advertisement authentication shipped in the same commit. An
+attacker who extracts the fleet secret from a captured airframe still defeats
+it, because the derivation is symmetric. Closing it needs per-platform key
+custody in hardware.
+
+**What is worth saying about how this was found and fixed.** It was found by
+simulation, not by any unit test — the "re-role logic that never ran in anger"
+symptom the handoff package predicts, requiring five agents, sustained loss, and
+a blackout **that ends**. It was then found *again independently* by the
+task-completion metric built for a different requirement. It was pinned by two
+tests that asserted the *defective* behaviour on purpose, with docstrings saying
+their failure would be the fix's acceptance criterion. That is exactly what
+happened, and both were inverted.
 
 ---
 

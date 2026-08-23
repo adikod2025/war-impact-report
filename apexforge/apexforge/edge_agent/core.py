@@ -32,6 +32,8 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+import hashlib
+import hmac
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from apexforge.config.loader import Config, load_config
@@ -198,6 +200,7 @@ class EdgeAgent:
         mesh: Optional[Transport] = None,
         audit: Optional[AuditLog] = None,
         mission_id: Optional[str] = None,
+        role_secret: Optional[Any] = None,
     ):
         if not platform_id:
             raise ValueError("EdgeAgent.platform_id is mandatory")
@@ -232,6 +235,28 @@ class EdgeAgent:
         self.expected_policy_version = str(
             self.config.get("edge.expected_policy_version", self.policy_version)
         )
+
+        #: Fleet secret used to authenticate role advertisements (R-31).
+        #:
+        #: ``None`` disables verification, which is the correct behaviour for
+        #: the in-process harness and the unit tests: there is no bearer to
+        #: attack. A platform that *has* a secret refuses unsigned claims, so
+        #: turning authentication on cannot silently leave a hole open - the
+        #: only two states are "no key anywhere" and "every claim verified".
+        #:
+        #: Injected via ``role_secret`` or read from config. Never defaulted to
+        #: a constant: a hard-coded fleet secret is not a secret, and a default
+        #: would make the unauthenticated case indistinguishable from a
+        #: misconfigured authenticated one.
+        secret = role_secret if role_secret is not None else self.config.get(
+            "edge.role_secret", None
+        )
+        self._role_secret: Optional[bytes] = (
+            secret.encode("utf-8") if isinstance(secret, str) and secret else
+            secret if isinstance(secret, (bytes, bytearray)) and secret else None
+        )
+        if isinstance(self._role_secret, bytearray):  # pragma: no cover - defensive
+            self._role_secret = bytes(self._role_secret)
 
         self.state = PlatformState(platform_id=platform_id)
         self.tick_count = 0
@@ -334,8 +359,82 @@ class EdgeAgent:
     # Decentralised role negotiation
     # ------------------------------------------------------------------
 
+    def peer_claims(
+        self, peer_msgs: Optional[List[Dict[str, Any]]]
+    ) -> List[Tuple[str, str]]:
+        """``(platform_id, role)`` advertised by *other* platforms.
+
+        ADR-004 needs the advertiser's identity, not just the role it claims,
+        because the relinquish rule is a tie-break on platform id. An
+        advertisement with no usable ``platform_id`` is **dropped**, not
+        defaulted: a claim that will not say who is making it cannot win a
+        tie-break, and admitting it with a placeholder id would let an
+        anonymous claim outrank a named one.
+
+        Authentication (R-31) is applied here, at the single point every claim
+        passes through. See :meth:`_claim_is_authentic`.
+        """
+        claims: List[Tuple[str, str]] = []
+        for body in self._believable_advertisements(peer_msgs):
+            platform_id = body.get("platform_id")
+            if not isinstance(platform_id, str) or not platform_id:
+                # An advertisement that will not say who is making it cannot
+                # win a tie-break. It is still believed for the *yield*
+                # direction (see peer_roles) - which is conservative, because
+                # yielding to an unidentified tracker prevents duplicate
+                # custody - but it may not take custody *from* anyone, which
+                # would be the opposite.
+                continue
+            claims.append((platform_id, str(body["role"])))
+        return claims
+
+    def _believable_advertisements(
+        self, peer_msgs: Optional[List[Dict[str, Any]]]
+    ) -> List[Dict[str, Any]]:
+        """Role advertisements that pass topic, self-echo and authenticity.
+
+        Tolerant by design about *shape* and strict about *authenticity*: a
+        peer message may or may not carry a ``topic`` (the DDIL overlay stamps
+        one, the handoff's mock does not), it may arrive bare or inside a
+        bearer envelope, and one malformed message must not blind the agent to
+        the rest.
+
+        The envelope case matters more than it looks. The DDIL mesh wraps the
+        application payload, so reading ``msg["role"]`` directly returns
+        ``None`` there and negotiation silently stops deconflicting - no error,
+        no log, just two platforms both taking the track (R-17). Payload access
+        goes through the transport contract's :func:`unwrap_payload`.
+        """
+        bodies: List[Dict[str, Any]] = []
+        for msg in peer_msgs or []:
+            if not isinstance(msg, dict):
+                continue
+            topic = msg.get("topic")
+            if topic is not None and topic != TOPIC_ROLE:
+                continue
+            body = unwrap_payload(msg)
+            if not isinstance(body, dict):
+                continue
+            platform_id = body.get("platform_id")
+            if platform_id == self.platform_id:
+                continue  # our own echo off a loopback bearer
+            role = body.get("role")
+            if not isinstance(role, str) or not role:
+                continue
+            if not self._claim_is_authentic(body, platform_id, role):
+                continue
+            bodies.append(body)
+        return bodies
+
     def peer_roles(self, peer_msgs: Optional[List[Dict[str, Any]]]) -> List[str]:
         """Roles advertised by *other* platforms in this batch of traffic.
+
+        Broader than :meth:`peer_claims` on purpose. This view includes
+        advertisements with no ``platform_id``, because for the *yield*
+        direction - "somebody already owns the track, so I will search" -
+        believing an unidentified claim is the conservative answer: it prevents
+        duplicate custody. Only the *relinquish* direction, where a claim takes
+        custody away from a platform that holds it, requires identity.
 
         Tolerant by design: a peer message may or may not carry a ``topic``
         (the DDIL overlay stamps one, the handoff's mock does not), it may
@@ -348,20 +447,100 @@ class EdgeAgent:
         no log, just two platforms both taking the track. Payload access goes
         through the transport contract's :func:`unwrap_payload` for that reason.
         """
-        roles: List[str] = []
-        for msg in peer_msgs or []:
-            if not isinstance(msg, dict):
-                continue
-            topic = msg.get("topic")
-            if topic is not None and topic != TOPIC_ROLE:
-                continue
-            body = unwrap_payload(msg)
-            if body.get("platform_id") == self.platform_id:
-                continue  # our own echo off a loopback bearer
-            role = body.get("role")
-            if isinstance(role, str) and role:
-                roles.append(role)
-        return roles
+        return [
+            str(body["role"]) for body in self._believable_advertisements(peer_msgs)
+        ]
+
+    def _yields_custody_to(
+        self, prior_role: str, claims: List[Tuple[str, str]]
+    ) -> Optional[str]:
+        """The peer this platform must relinquish custody to, if any (ADR-004).
+
+        Option A from ADR-004: a **deterministic tie-break on platform id**.
+        Among platforms claiming ``track``, the lowest id keeps custody and the
+        others re-role to ``search``.
+
+        Three properties make this the right rule for a DDIL environment, and
+        each is asserted by a test:
+
+        * **It converges in one tick.** Every platform computes the same answer
+          from the same advertisements - no negotiation round trip, no
+          orchestrator arbitration, no acknowledgement.
+        * **It cannot oscillate.** The comparison is a total order on a value
+          that never changes, so there is no state in which two platforms each
+          decide the other should hold.
+        * **It degrades correctly.** Hearing nobody returns ``None``, so a
+          platform that has lost comms keeps custody. Loss of the link must
+          never cause loss of the target - that was the whole reason the
+          original guard existed.
+
+        Returns the peer id yielded to rather than a bool, so the audit record
+        can name who took over.
+        """
+        if prior_role != "track":
+            return None
+        if self.swarm_level.value < SwarmLevel.COLLABORATIVE.value:
+            return None
+        lower = sorted(
+            pid for pid, role in claims if role == "track" and pid < self.platform_id
+        )
+        return lower[0] if lower else None
+
+    def _claim_is_authentic(
+        self, body: Dict[str, Any], platform_id: Any, role: str
+    ) -> bool:
+        """Whether a peer's role advertisement may be believed (R-31).
+
+        **Why this exists here and now.** ADR-004's tie-break makes the lowest
+        platform id win, which *amplifies* an already-open risk: on an
+        unauthenticated bearer, a spoofed peer claiming ``UAV-000`` and
+        ``role="track"`` would strip custody from every real platform at once.
+        Shipping the tie-break without this check would have been a
+        self-inflicted regression, so the two land together.
+
+        **What this is and is not.** Advertisements are tagged with an HMAC
+        derived from the fleet secret *and the advertiser's platform id*, so a
+        platform can sign as itself and not as another. That stops an outsider
+        with no key, and it stops a platform impersonating a peer using only
+        what it can see on the wire. It does **not** stop an attacker who has
+        extracted the fleet secret from a captured airframe - the derivation is
+        symmetric, and defeating that needs per-platform key custody in
+        hardware. R-31 narrows; it does not close. Stated in the risk register
+        rather than implied by the presence of a signature.
+
+        Unsigned advertisements are accepted only when the platform holds no
+        fleet secret at all, which is the in-process test and simulation case.
+        A platform that *has* a secret refuses unsigned claims, so enabling
+        authentication cannot silently leave a hole open.
+        """
+        secret = self._role_secret
+        tag = body.get("auth")
+        if secret is None:
+            return True  # no key material configured: nothing to verify against
+        if not isinstance(platform_id, str) or not platform_id:
+            # Authentication is keyed on the advertiser's id, so an anonymous
+            # claim is unverifiable by construction. When a fleet secret is
+            # configured, unverifiable means rejected - otherwise dropping the
+            # id would be a way to skip the check entirely.
+            return False
+        if not isinstance(tag, str) or not tag:
+            return False
+        expected = self._role_tag(platform_id, role, body.get("policy_version", ""))
+        return hmac.compare_digest(expected, tag)
+
+    def _role_tag(self, platform_id: str, role: str, policy_version: Any) -> str:
+        """HMAC over (platform_id, role, policy_version), keyed per platform.
+
+        ``platform_id`` is in the *key derivation* as well as the message, so a
+        platform that knows the fleet secret still cannot mint a tag that
+        verifies for a different advertiser id.
+        """
+        assert self._role_secret is not None  # guarded by every caller
+        key = hmac.new(
+            self._role_secret, platform_id.encode("utf-8"), hashlib.sha256
+        ).digest()
+        message = f"{platform_id}|{role}|{policy_version}".encode("utf-8")
+        return hmac.new(key, message, hashlib.sha256).hexdigest()
 
     def _resolved_role(self) -> str:
         """Current role, with "unassigned" resolved to the default role."""
@@ -413,6 +592,17 @@ class EdgeAgent:
             role = self._negotiate_role(peer_msgs)
             self.state.mission_role = role
 
+            # Parsed once, then read two ways, because the two directions of
+            # the deconfliction have deliberately different evidence bars.
+            advertisements = self._believable_advertisements(peer_msgs)
+            claims = [
+                (str(b["platform_id"]), str(b["role"]))
+                for b in advertisements
+                if isinstance(b.get("platform_id"), str) and b.get("platform_id")
+            ]
+            any_peer_tracking = any(b.get("role") == "track" for b in advertisements)
+            collaborative = self.swarm_level.value >= SwarmLevel.COLLABORATIVE.value
+
             # Deconfliction, and the one place this implementation goes beyond
             # the handoff's pseudocode. Read literally, that pseudocode hands
             # the backing-off platform the role "search" and then still lets it
@@ -420,22 +610,49 @@ class EdgeAgent:
             # object - which is the failure the negotiation exists to prevent.
             # We honour the negotiated outcome: if a peer already owns the
             # track and we do not, we search. See docs/design-notes/edge-agent.md.
-            peer_owns_track = (
-                self.swarm_level.value >= SwarmLevel.COLLABORATIVE.value
-                and prior_role != "track"
-                and "track" in self.peer_roles(peer_msgs)
+            #
+            # ADR-004 adds the other half. Before it, this check was guarded by
+            # ``prior_role != "track"``, so a platform already holding custody
+            # never re-examined the question. Correct during a partition -
+            # nobody can deconflict blind, and yielding because you cannot
+            # *hear* a peer would lose the target for no reason - but wrong the
+            # moment the link returns, because nobody ever yielded and the
+            # duplicate custody established during the blackout persisted to
+            # the end of the mission (R-21).
+            # Yielding (I am not tracking, somebody says they are) accepts any
+            # believable advertisement, identified or not - it is the
+            # conservative direction and prevents duplicate custody.
+            # Relinquishing (I am tracking, somebody must displace me) requires
+            # an identified claim that wins the tie-break, because an anonymous
+            # claim must never take custody from a named holder.
+            yields_to = self._yields_custody_to(prior_role, claims)
+            peer_owns_track = collaborative and (
+                yields_to is not None
+                or (prior_role != "track" and any_peer_tracking)
             )
 
             battery = float(obs.get("battery", self.state.battery))
+            reserve_breached = battery < self.rtb_battery_threshold
 
-            if obs.get("has_target") and role in NEGOTIABLE_ROLES and not peer_owns_track:
+            # ADR-003 (R-15). The energy branch is evaluated **before** the
+            # track branch. The handoff's own pseudocode had it the other way
+            # round, which meant a platform holding a target kept tracking
+            # below its return-to-base reserve, indefinitely, until it could no
+            # longer fly - so the reserve existed in policy and was enforced on
+            # every platform except the one actually doing the mission.
+            #
+            # Custody handoff falls out of the deconfliction that already
+            # exists rather than needing new protocol: the returning platform
+            # advertises ``rtb``, and on the next tick a peer that hears no
+            # tracker takes the track itself.
+            if reserve_breached:
+                action = Action(type="rtb", params={}, confidence=self.rtb_confidence)
+            elif obs.get("has_target") and role in NEGOTIABLE_ROLES and not peer_owns_track:
                 action = Action(
                     type="track",
                     params={"target_id": obs.get("primary_target", "unknown")},
                     confidence=self.track_confidence,
                 )
-            elif battery < self.rtb_battery_threshold:
-                action = Action(type="rtb", params={}, confidence=self.rtb_confidence)
             else:
                 action = Action(
                     type="search",
@@ -613,18 +830,25 @@ class EdgeAgent:
         )
 
     def _publish_role(self) -> None:
-        """Advertise our role so peers can negotiate without an Orchestrator."""
-        self._publish(
-            TOPIC_ROLE,
-            {
-                "topic": TOPIC_ROLE,
-                "platform_id": self.platform_id,
-                "role": self.state.mission_role,
-                "policy_version": self.policy_version,
-                "timestamp": utc_now_iso(),
-            },
-            correlation=self._tick_id,
-        )
+        """Advertise our role so peers can negotiate without an Orchestrator.
+
+        Carries the advertiser's ``platform_id`` because ADR-004's tie-break
+        needs to know *who* is claiming, and an authentication tag when key
+        material is configured, because that tie-break rewards a low id and an
+        unauthenticated bearer would let anyone claim one (R-31).
+        """
+        payload: Dict[str, Any] = {
+            "topic": TOPIC_ROLE,
+            "platform_id": self.platform_id,
+            "role": self.state.mission_role,
+            "policy_version": self.policy_version,
+            "timestamp": utc_now_iso(),
+        }
+        if self._role_secret is not None:
+            payload["auth"] = self._role_tag(
+                self.platform_id, self.state.mission_role, self.policy_version
+            )
+        self._publish(TOPIC_ROLE, payload, correlation=self._tick_id)
 
     # ------------------------------------------------------------------
     # Assurance

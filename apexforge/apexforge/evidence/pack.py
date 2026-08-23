@@ -56,13 +56,16 @@ EVIDENCE_SEED = 20260823
 #: readings cost more than the disclosure does.
 SCENARIO_NOTES: Mapping[str, str] = {
     "ddil": (
-        "Scores 28.6% for a known open defect, not a comms failure: R-21. "
-        "Every platform is flying and productive, but during the blackout no "
-        "peer role advertisements arrive, so all five take custody of the "
-        "track at once and never relinquish after the link returns. The "
-        "mission demanded `search` and got `track`. Decision document: "
-        "ADR-004 (PROPOSED, awaiting a human decider). This is a blocking "
-        "defect for any pilot use case involving multi-agent custody handover."
+        "Scores below the fault-tolerance floor for a **deliberate design "
+        "decision, not a defect**. ADR-004 states that a platform must not "
+        "yield custody merely because it cannot hear its peers - losing the "
+        "target because the link degraded would be worse than duplicating "
+        "custody - so during the blackout every platform tracks the detection "
+        "it can see and the mission's demanded `search` slot goes unserviced. "
+        "Custody converges to a single platform one tick after the link "
+        "returns (ADR-004, R-21 closed), and the recovered ticks score again. "
+        "The residual gap is the measured price of the partition rule, "
+        "reported rather than asserted away."
     ),
     "attrition": (
         "Reports 100% because the scenario demands a single role slot against "

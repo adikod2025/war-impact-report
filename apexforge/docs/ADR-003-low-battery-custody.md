@@ -1,15 +1,32 @@
 # ADR-003: Energy Reserve vs. Track Custody
 
-**Status:** 🟡 **PROPOSED — awaiting decision**
+**Status:** ✅ **ACCEPTED**
 **Date raised:** 22 August 2026
-**Deciders required:** Product + Assurance + Edge lead (safety call)
-**Addresses:** R-15 in [`RISK_REGISTER.md`](RISK_REGISTER.md)
+**Date decided:** 23 August 2026
+**Deciding authority:** Repository owner (adil.kodsi@gmail.com), granting explicit
+authorisation to proceed with all changes required to make all six pilot use
+cases ready. Recorded here because ADR-001 reserves autonomy-behaviour changes
+for a named human decider, and this is that record.
+**Decision:** **Option B** — the energy branch is evaluated before the track branch.
+**Addresses:** R-15 in [`RISK_REGISTER.md`](RISK_REGISTER.md) — **CLOSED**
 **Relates to:** [ADR-001](ADR-001-orchestration.md) (execution-layer autonomy), WF-01, WF-07
 
-> This document does **not** record a decision. It states the problem, the
-> options and their consequences, and a recommendation. ADR-001 reserves
-> autonomy-behaviour changes for named human deciders, so the build
-> deliberately reproduced the current behaviour rather than choosing for you.
+> **Decided and implemented.** Option B is in `apexforge/edge_agent/core.py`:
+> `decide()` evaluates the return-to-base reserve before the track branch, so a
+> platform holding a target can no longer fly below reserve.
+>
+> The consequence ADR-003 predicted held exactly — **the custody handoff fell
+> out of the deconfliction that already existed and needed no new protocol.**
+> The returning platform advertises `rtb`; on the next tick a peer hears no
+> tracker and takes the track. Asserted end to end over a real mesh by
+> `test_a_returning_platform_hands_custody_over_without_new_protocol`.
+>
+> A second behaviour was pinned while implementing it, because it is a real
+> consequence somebody will otherwise discover in the field: **the return is
+> not interruptible.** A platform that commits to `rtb` adopts it as its role,
+> and `rtb` is outside `NEGOTIABLE_ROLES`, so the next detection does not drag
+> it back onto a target it no longer has the fuel to hold. That is the correct
+> behaviour and it is now asserted rather than incidental.
 
 ---
 

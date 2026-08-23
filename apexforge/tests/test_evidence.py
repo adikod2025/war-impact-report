@@ -294,15 +294,20 @@ def test_the_cli_reports_the_headline_and_exits_zero(tmp_path, capsys):
     assert "Pack verdict    : PASS" in printed
 
 
-def test_a_scenario_that_scores_badly_explains_itself_in_the_pack(pack):
-    """An unexplained 28.6% reads as either broken or hidden. Both cost more
-    than the disclosure does."""
+def test_a_scenario_that_scores_below_the_floor_explains_itself_in_the_pack(pack):
+    """An unexplained sub-floor number reads as either broken or hidden.
+
+    The explanation changed when ADR-004 landed: the score is no longer a
+    defect, it is the measured cost of a deliberate partition rule. The pack
+    must say which, because "below the floor" invites the wrong reading either
+    way.
+    """
     ddil = pack.scenarios["ddil"]
 
-    assert ddil["task_completion"]["rate"] < 0.5
-    assert "R-21" in ddil["note"]
+    assert not ddil["meets_fault_tolerance_floor"]
     assert "ADR-004" in ddil["note"]
-    assert "blocking defect" in ddil["note"]
+    assert "not a defect" in ddil["note"]
+    assert "R-21 closed" in ddil["note"]
 
 
 def test_the_markdown_carries_the_scenario_notes_next_to_the_table(pack):
