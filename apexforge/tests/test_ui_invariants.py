@@ -359,3 +359,210 @@ def test_a_panel_the_operator_may_not_see_is_absent_not_hidden():
     assert 'id="audit"' not in page
     assert 'id="gates"' not in page
     assert 'id="mro"' not in page
+
+
+# ===========================================================================
+# 5. Blueprint (Palantir) design-system conformance
+# ===========================================================================
+#
+# The console is styled to Palantir's Blueprint design language. Blueprint
+# itself is a React + CSS package and this console loads nothing external - it
+# has to render on a tablet with no network, which is the whole point of a
+# console whose most common subject is a link failure. So the tokens and the
+# component patterns are implemented here directly.
+#
+# That distinction is exactly the kind of claim that decays into "we were
+# inspired by it" unless something checks. These tests are what check.
+
+
+BLUEPRINT_GRID = 10  # $pt-grid-size
+
+
+def _stylesheet_colours():
+    """Every colour literal in the stylesheet, hex and rgba alike."""
+    from apexforge.ui.render import STYLESHEET
+
+    hexes = {m.upper() for m in re.findall(r"#[0-9a-fA-F]{3,8}", STYLESHEET)}
+    rgbas = set(re.findall(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)", STYLESHEET))
+    return hexes, {tuple(int(c) for c in triple) for triple in rgbas}
+
+
+def test_every_hex_colour_in_the_stylesheet_is_a_blueprint_palette_value():
+    """No hand-picked colours. Every hex is checkable against Blueprint's palette.
+
+    This is the test that keeps "styled to Blueprint" from decaying into
+    "vaguely dark and blue". A reviewer can diff BLUEPRINT_PALETTE against
+    Blueprint's published palette; this asserts nothing else got in.
+    """
+    from apexforge.ui.render import BLUEPRINT_PALETTE
+
+    permitted = {v.upper() for v in BLUEPRINT_PALETTE.values()}
+    used, _rgba = _stylesheet_colours()
+    assert used <= permitted, f"off-palette colour(s): {sorted(used - permitted)}"
+
+
+def test_every_rgba_tint_is_a_blueprint_palette_colour_at_opacity():
+    """The alpha tints are palette colours too, not eyeballed greys.
+
+    Blueprint builds its translucent surfaces from palette colours at fixed
+    opacity. A hand-mixed rgba is the usual way a palette quietly grows a
+    forty-first colour, so the rgb triples are checked as strictly as the
+    hexes.
+    """
+    from apexforge.ui.render import BLUEPRINT_PALETTE
+
+    def to_rgb(value):
+        value = value.lstrip("#")
+        return tuple(int(value[i : i + 2], 16) for i in (0, 2, 4))
+
+    permitted = {to_rgb(v) for v in BLUEPRINT_PALETTE.values()}
+    _hexes, used = _stylesheet_colours()
+    assert used <= permitted, f"off-palette tint(s): {sorted(used - permitted)}"
+
+
+def test_the_palette_carries_blueprints_published_anchor_values():
+    """Spot-check against Blueprint's own documented hexes.
+
+    If BLUEPRINT_PALETTE were quietly edited, the two tests above would still
+    pass - they check consistency, not correctness. These anchors check
+    correctness.
+    """
+    from apexforge.ui.render import BLUEPRINT_PALETTE as P
+
+    assert P["black"] == "#111418"
+    assert P["dark-gray2"] == "#252A31"
+    assert P["blue3"] == "#2D72D2"
+    assert P["green3"] == "#238551"
+    assert P["orange3"] == "#C87619"
+    assert P["red3"] == "#CD4246"
+    assert P["light-gray5"] == "#F6F7F9"
+    assert P["white"] == "#FFFFFF"
+
+
+def test_layout_metrics_derive_from_the_ten_pixel_grid():
+    """Blueprint's $pt-grid-size is 10px and its control metrics follow it."""
+    from apexforge.ui.render import STYLESHEET
+
+    assert f"--grid: {BLUEPRINT_GRID}px" in STYLESHEET
+    assert "--radius: 2px" in STYLESHEET, "$pt-border-radius"
+    assert "--navbar-h: 50px" in STYLESHEET, "$pt-navbar-height"
+    assert "--control-h: 30px" in STYLESHEET, "$pt-button-height"
+    assert "--fs: 14px" in STYLESHEET and "--fs-sm: 12px" in STYLESHEET
+    assert "--lh: 1.28581" in STYLESHEET, "$pt-line-height"
+
+
+def test_unknown_is_not_rendered_with_the_danger_intent():
+    """The mapping decision that carries the most meaning.
+
+    Blueprint's intents are a severity ladder. "No evidence has ever arrived"
+    is not a severity - it is an absence - and giving it DANGER would collapse
+    the exact distinction the view model exists to preserve: a platform that is
+    failing and a platform nobody has heard from need different responses.
+    UNKNOWN therefore takes extended-palette Violet, deliberately off the
+    ladder.
+    """
+    from apexforge.ui.render import FRESHNESS_INTENT
+    from apexforge.ui.contracts import Freshness
+
+    assert FRESHNESS_INTENT[Freshness.UNKNOWN] != "danger"
+    assert FRESHNESS_INTENT[Freshness.STALE] == "danger"
+    assert FRESHNESS_INTENT[Freshness.LIVE] == "success"
+    assert FRESHNESS_INTENT[Freshness.AGEING] == "warning"
+    assert set(FRESHNESS_INTENT) == set(Freshness), "every state needs an intent"
+
+
+def test_freshness_is_never_carried_by_colour_alone():
+    """Blueprint intents are colour. Colour is the last signal here, not the only one.
+
+    Each state must also have a distinct glyph and a distinct border treatment,
+    so the console survives a monochrome display, direct sunlight, and the
+    ~8% of men with a colour vision deficiency.
+    """
+    from apexforge.ui.render import FRESHNESS_LABEL, FRESHNESS_MARK, STYLESHEET
+    from apexforge.ui.contracts import Freshness
+
+    degraded = (Freshness.AGEING, Freshness.STALE, Freshness.UNKNOWN)
+    marks = {FRESHNESS_MARK[f] for f in degraded}
+    assert len(marks) == len(degraded), f"glyphs must be distinct, got {marks}"
+    assert "" not in marks, "a degraded state with no glyph is colour-only"
+
+    labels = {FRESHNESS_LABEL[f] for f in Freshness}
+    assert len(labels) == len(Freshness), "every state needs its own word"
+
+    for state in degraded:
+        rule = STYLESHEET.split(f".f-{state.value} ")[1].split("}")[0]
+        assert "border-bottom" in rule, f".f-{state.value} has no non-colour treatment"
+
+
+def test_every_panel_is_a_blueprint_card_and_every_empty_state_is_non_ideal():
+    """Blueprint's NonIdealState, not a blank region.
+
+    Blueprint's guidance and this project's freshness invariant agree here: an
+    empty region reads as "nothing to report", and the difference between
+    *nothing to report* and *nothing arrived* is the point of the whole view
+    model. So the empty case gets a visual, a title and a description.
+    """
+    from apexforge.ui.viewmodel import ViewModelBuilder
+    from apexforge.ui.contracts import Operator, OperatorRole
+
+    view = ViewModelBuilder().console(Operator("cmd-1", OperatorRole.COMMANDER))
+    page = render_page(view)
+
+    assert page.count("bp-card") >= len(view.panels)
+    assert "bp-non-ideal-state" in page
+    assert "No platforms reporting" in page
+    assert "not an all-clear" in page, "the empty COP must not read as nominal"
+
+
+def test_the_console_loads_no_blueprint_assets_over_the_network():
+    """Blueprint normally arrives from npm or a CDN. This console cannot fetch.
+
+    The page has to render on a tablet with no network - which matters most
+    when the thing it is reporting *is* a link failure. So the design language
+    is implemented inline and this asserts nothing external crept back in.
+    """
+    from apexforge.ui.viewmodel import ViewModelBuilder
+    from apexforge.ui.contracts import Operator, OperatorRole
+
+    page = render_page(
+        ViewModelBuilder().console(Operator("cmd-1", OperatorRole.COMMANDER))
+    )
+    assert "<script" not in page.lower()
+    assert "http://" not in page and "https://" not in page
+    assert "@import" not in page
+    assert "<link" not in page.lower()
+    assert "blueprintjs" not in page.lower(), "no CDN reference, even commented"
+
+
+def test_dark_is_the_default_theme_with_light_offered():
+    """Blueprint ships dark as a first-class mode; an ops console is read for
+    hours in a dim room. Light is available for a lit briefing space."""
+    from apexforge.ui.viewmodel import ViewModelBuilder
+    from apexforge.ui.contracts import Operator, OperatorRole
+    from apexforge.ui.render import STYLESHEET
+
+    page = render_page(
+        ViewModelBuilder().console(Operator("cmd-1", OperatorRole.COMMANDER))
+    )
+    assert 'class="bp-dark"' in page
+    assert 'content="dark light"' in page
+    assert "prefers-color-scheme: light" in STYLESHEET
+
+
+def test_keyboard_focus_is_visible_and_mouse_focus_is_not():
+    """Blueprint suppresses focus rings until the keyboard is used. A console
+    driven under time pressure is driven from the keyboard."""
+    from apexforge.ui.render import STYLESHEET
+
+    assert ":focus:not(:focus-visible)" in STYLESHEET
+    assert ":focus-visible" in STYLESHEET
+
+
+def test_identifiers_and_numbers_are_monospaced():
+    """Palantir's data-dense convention: identifiers and figures are read by
+    scanning a column, which proportional type defeats."""
+    from apexforge.ui.render import STYLESHEET
+
+    assert "--mono:" in STYLESHEET
+    assert ".bp-id { font-family: var(--mono); }" in STYLESHEET.replace("  ", " ")
+    assert "tabular-nums" in STYLESHEET

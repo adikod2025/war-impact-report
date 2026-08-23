@@ -54,7 +54,16 @@ from apexforge.ui.viewmodel import (
     ReplayView,
 )
 
-__all__ = ["esc", "render_console", "render_page", "STYLESHEET", "FRESHNESS_LABEL"]
+__all__ = [
+    "esc",
+    "render_console",
+    "render_page",
+    "STYLESHEET",
+    "BLUEPRINT_PALETTE",
+    "FRESHNESS_LABEL",
+    "FRESHNESS_MARK",
+    "FRESHNESS_INTENT",
+]
 
 
 def esc(value: Any) -> str:
@@ -85,67 +94,354 @@ FRESHNESS_MARK: Mapping[Freshness, str] = {
 }
 
 
-STYLESHEET = """
-:root {
-  --bg: #0e1116; --panel: #161b22; --line: #30363d; --text: #e6edf3;
-  --muted: #8b949e; --live: #3fb950; --ageing: #d29922; --stale: #f85149;
-  --unknown: #a371f7; --accent: #58a6ff;
+#: Blueprint's 5-step palette, verbatim. Named rather than inlined so that a
+#: reviewer can check a hex against Blueprint's published palette instead of
+#: against another line of this file, and so an intent can be re-pointed in one
+#: place. Extended-palette Violet is included for exactly one purpose - see
+#: FRESHNESS_INTENT.
+BLUEPRINT_PALETTE = {
+    "black": "#111418",
+    "dark-gray1": "#1C2127", "dark-gray2": "#252A31", "dark-gray3": "#2F343C",
+    "dark-gray4": "#383E47", "dark-gray5": "#404854",
+    "gray1": "#5F6B7C", "gray2": "#738091", "gray3": "#8F99A8",
+    "gray4": "#ABB3BF", "gray5": "#C5CBD3",
+    "light-gray1": "#D3D8DE", "light-gray2": "#DCE0E5", "light-gray3": "#E5E8EB",
+    "light-gray4": "#EDEFF2", "light-gray5": "#F6F7F9",
+    "white": "#FFFFFF",
+    "blue1": "#184A90", "blue2": "#215DB0", "blue3": "#2D72D2",
+    "blue4": "#4C90F0", "blue5": "#8ABBFF",
+    "green1": "#165A36", "green2": "#1C6E42", "green3": "#238551",
+    "green4": "#32A467", "green5": "#72CA9B",
+    "orange1": "#77450D", "orange2": "#935610", "orange3": "#C87619",
+    "orange4": "#EC9A3C", "orange5": "#FBB360",
+    "red1": "#8E292C", "red2": "#AC2F33", "red3": "#CD4246",
+    "red4": "#E76A6E", "red5": "#FA999C",
+    "violet1": "#5C255C", "violet2": "#7C327C", "violet3": "#9D3F9D",
+    "violet4": "#BD6BBD", "violet5": "#D69FD6",
 }
-@media (prefers-color-scheme: light) {
-  :root { --bg:#ffffff; --panel:#f6f8fa; --line:#d0d7de; --text:#1f2328;
-          --muted:#656d76; --live:#1a7f37; --ageing:#9a6700; --stale:#cf222e;
-          --unknown:#8250df; --accent:#0969da; }
+
+#: Freshness -> Blueprint intent. The mapping is the interesting part.
+#:
+#: LIVE/AGEING/STALE take SUCCESS/WARNING/DANGER, which is what Blueprint's
+#: intents are for. ``UNKNOWN`` deliberately does **not** take DANGER: "no
+#: evidence has ever arrived" is not "this platform is failing", and giving
+#: both the same red would collapse the distinction the whole view model exists
+#: to preserve. It takes extended-palette Violet, which sits outside the intent
+#: ladder precisely because it is not a severity - it is an absence.
+FRESHNESS_INTENT = {
+    Freshness.LIVE: "success",
+    Freshness.AGEING: "warning",
+    Freshness.STALE: "danger",
+    Freshness.UNKNOWN: "unknown",
 }
-* { box-sizing: border-box; }
-body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5
-  ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
-header { padding:.75rem 1rem; border-bottom:1px solid var(--line);
-  display:flex; gap:1rem; align-items:baseline; flex-wrap:wrap; }
-h1 { font-size:1rem; margin:0; letter-spacing:.04em; }
-.who { color:var(--muted); }
-.role { border:1px solid var(--line); padding:.05rem .4rem; border-radius:3px; }
-nav { display:flex; gap:.25rem; padding:.5rem 1rem; flex-wrap:wrap;
-  border-bottom:1px solid var(--line); }
-nav a { color:var(--accent); text-decoration:none; border:1px solid transparent;
-  padding:.15rem .5rem; border-radius:3px; }
-nav a:hover, nav a:focus { border-color:var(--line); }
-main { padding:1rem; display:grid; gap:1rem; }
-section { background:var(--panel); border:1px solid var(--line);
-  border-radius:6px; padding:.75rem 1rem; }
-section > h2 { font-size:.85rem; text-transform:uppercase; letter-spacing:.08em;
-  color:var(--muted); margin:0 0 .5rem; }
-table { width:100%; border-collapse:collapse; }
-th, td { text-align:left; padding:.3rem .5rem; border-bottom:1px solid var(--line); }
-th { color:var(--muted); font-weight:600; font-size:.8rem; }
-/* Freshness: colour AND a border treatment AND a word. Never colour alone. */
-.f-live    { color:var(--live); }
-.f-ageing  { color:var(--ageing); border-left:3px dashed var(--ageing); padding-left:.4rem; }
-.f-stale   { color:var(--stale); border-left:3px double var(--stale); padding-left:.4rem;
-             font-weight:700; }
-.f-unknown { color:var(--unknown); border-left:3px dotted var(--unknown); padding-left:.4rem;
-             font-weight:700; }
-.mark { font-weight:700; }
-.banner { border:2px solid var(--stale); background:transparent; color:var(--stale);
-  padding:.6rem .8rem; border-radius:6px; margin:1rem 1rem 0; font-weight:700; }
-.banner.ok { border-color:var(--live); color:var(--live); font-weight:400; }
-.note { color:var(--muted); font-size:.85rem; margin:.4rem 0 0; }
-form { display:grid; gap:.5rem; max-width:34rem; }
-label { display:grid; gap:.15rem; }
-label .help { color:var(--muted); font-size:.8rem; font-weight:400; }
-input, select { background:var(--bg); color:var(--text);
-  border:1px solid var(--line); border-radius:4px; padding:.35rem .5rem; font:inherit; }
-button { background:var(--accent); color:var(--bg); border:0; border-radius:4px;
-  padding:.4rem .9rem; font:inherit; font-weight:700; cursor:pointer; }
-.gate { border:1px solid var(--line); border-radius:4px; padding:.5rem .7rem;
-  margin-bottom:.5rem; }
-.gate dl { display:grid; grid-template-columns:auto 1fr; gap:.1rem .6rem; margin:.3rem 0 0; }
-.gate dt { color:var(--muted); }
-.gate dd { margin:0; }
-pre { overflow-x:auto; margin:0; }
-.scroll { overflow-x:auto; }
-footer { padding:1rem; color:var(--muted); font-size:.8rem;
-  border-top:1px solid var(--line); }
+
+_P = BLUEPRINT_PALETTE
+
+STYLESHEET = f"""
+/* ==========================================================================
+   Blueprint design tokens. Dark is the default theme, not a preference:
+   Blueprint ships dark as a first-class mode and an operations console is
+   read in a dim room for hours. Light is offered for a lit briefing space.
+   ========================================================================== */
+:root {{
+  --grid: 10px;                     /* Blueprint's $pt-grid-size */
+  --radius: 2px;                    /* $pt-border-radius */
+  --navbar-h: 50px;                 /* $pt-navbar-height */
+  --control-h: 30px;                /* $pt-button-height */
+  --control-h-sm: 24px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+          Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  --mono: "SF Mono", Monaco, Inconsolata, "Fira Mono", "Droid Sans Mono",
+          "Source Code Pro", monospace;
+  --fs: 14px; --fs-sm: 12px; --fs-lg: 16px;
+  --lh: 1.28581;                    /* $pt-line-height */
+
+  --blue2: {_P['blue2']}; --blue3: {_P['blue3']}; --blue5: {_P['blue5']};
+  --green3: {_P['green3']}; --green5: {_P['green5']};
+  --orange3: {_P['orange3']}; --orange5: {_P['orange5']};
+  --red3: {_P['red3']}; --red5: {_P['red5']};
+  --violet3: {_P['violet3']}; --violet5: {_P['violet5']};
+  --white: {_P['white']};
+
+  /* Dark theme surfaces (.bp-dark) */
+  --app-bg: {_P['dark-gray2']};
+  --card-bg: {_P['dark-gray4']};
+  --raised-bg: {_P['dark-gray5']};
+  --navbar-bg: {_P['dark-gray4']};
+  --text: {_P['light-gray5']};
+  --text-muted: {_P['gray4']};
+  --text-disabled: {_P['gray2']};
+  --divider: rgba(255,255,255,.15);
+  --input-bg: rgba(17,20,24,.3);
+
+  --intent-primary: {_P['blue5']};
+  --intent-success: {_P['green5']};
+  --intent-warning: {_P['orange5']};
+  --intent-danger: {_P['red5']};
+  --intent-unknown: {_P['violet5']};
+
+  --elev-0: 0 0 0 1px rgba(17,20,24,.2), 0 1px 1px rgba(17,20,24,.4);
+  --elev-1: 0 0 0 1px rgba(17,20,24,.2), 0 1px 1px rgba(17,20,24,.4);
+  --elev-2: 0 0 0 1px rgba(17,20,24,.2), 0 1px 1px rgba(17,20,24,.4),
+            0 2px 6px rgba(17,20,24,.4);
+}}
+
+@media (prefers-color-scheme: light) {{
+  :root {{
+    --app-bg: {_P['light-gray5']};
+    --card-bg: {_P['white']};
+    --raised-bg: {_P['white']};
+    --navbar-bg: {_P['white']};
+    --text: {_P['dark-gray1']};
+    --text-muted: {_P['gray1']};
+    --text-disabled: {_P['gray3']};
+    --divider: rgba(17,20,24,.15);
+    --input-bg: {_P['white']};
+    --intent-primary: {_P['blue3']};
+    --intent-success: {_P['green3']};
+    --intent-warning: {_P['orange3']};
+    --intent-danger: {_P['red3']};
+    --intent-unknown: {_P['violet3']};
+    --elev-0: 0 0 0 1px rgba(17,20,24,.15);
+    --elev-1: 0 0 0 1px rgba(17,20,24,.15), 0 1px 1px rgba(17,20,24,.2);
+    --elev-2: 0 0 0 1px rgba(17,20,24,.15), 0 1px 1px rgba(17,20,24,.2),
+              0 2px 6px rgba(17,20,24,.2);
+  }}
+}}
+
+* {{ box-sizing: border-box; }}
+html, body {{ height: 100%; }}
+body {{
+  margin: 0; background: var(--app-bg); color: var(--text);
+  font-family: var(--font); font-size: var(--fs); line-height: var(--lh);
+  -webkit-font-smoothing: antialiased;
+}}
+
+/* Blueprint hides focus rings until the keyboard is used. Keyboard-first
+   operation is not optional on a console driven under time pressure. */
+:focus:not(:focus-visible) {{ outline: none; }}
+:focus-visible {{
+  outline: 2px solid var(--intent-primary); outline-offset: 2px;
+}}
+
+.bp-monospace-text {{ font-family: var(--mono); }}
+.bp-text-muted {{ color: var(--text-muted); }}
+.bp-text-small {{ font-size: var(--fs-sm); }}
+.bp-running-text {{ margin: 0 0 calc(var(--grid) * .5); }}
+
+/* -- Navbar ------------------------------------------------------------- */
+.bp-navbar {{
+  height: var(--navbar-h); padding: 0 calc(var(--grid) * 1.5);
+  background: var(--navbar-bg); box-shadow: var(--elev-1);
+  display: flex; align-items: center; gap: var(--grid);
+  position: sticky; top: 0; z-index: 10;
+}}
+.bp-navbar-heading {{
+  font-size: var(--fs-lg); font-weight: 600; letter-spacing: .02em;
+  margin-right: var(--grid);
+}}
+.bp-navbar-group {{ display: flex; align-items: center; gap: calc(var(--grid) * .5); }}
+.bp-navbar-group.bp-align-right {{ margin-left: auto; }}
+.bp-navbar-divider {{
+  width: 1px; height: 20px; background: var(--divider);
+  margin: 0 calc(var(--grid) * .5);
+}}
+
+/* -- Tabs (Blueprint Tabs, as anchors so the page needs no script) ------- */
+.bp-tab-list {{
+  display: flex; gap: calc(var(--grid) * 2); align-items: center;
+  padding: 0 calc(var(--grid) * 1.5); background: var(--navbar-bg);
+  box-shadow: inset 0 -1px 0 var(--divider); overflow-x: auto;
+}}
+.bp-tab {{
+  color: var(--text-muted); text-decoration: none; font-size: var(--fs);
+  line-height: 30px; white-space: nowrap;
+  box-shadow: inset 0 -3px 0 transparent;
+}}
+.bp-tab:hover {{ color: var(--text); }}
+.bp-tab:focus-visible {{ outline-offset: -2px; }}
+.bp-tab:target, .bp-tab:active {{ color: var(--intent-primary); }}
+
+/* -- Card / elevation --------------------------------------------------- */
+main {{ padding: calc(var(--grid) * 1.5); display: grid; gap: calc(var(--grid) * 1.5); }}
+.bp-card {{
+  background: var(--card-bg); border-radius: var(--radius);
+  padding: calc(var(--grid) * 1.5); box-shadow: var(--elev-0);
+}}
+.bp-elevation-1 {{ box-shadow: var(--elev-1); }}
+.bp-elevation-2 {{ box-shadow: var(--elev-2); }}
+.bp-heading {{
+  font-size: var(--fs-lg); font-weight: 600; margin: 0 0 var(--grid);
+  display: flex; align-items: center; gap: calc(var(--grid) * .8);
+  flex-wrap: wrap;
+}}
+
+/* -- Callout ------------------------------------------------------------ */
+.bp-callout {{
+  padding: calc(var(--grid) * 1.2) calc(var(--grid) * 1.5);
+  border-radius: var(--radius); background: rgba(143,153,168,.15);
+  border-left: 3px solid var(--text-muted); margin: 0;
+}}
+.bp-callout-title {{
+  font-weight: 600; margin: 0 0 calc(var(--grid) * .3); font-size: var(--fs);
+  letter-spacing: .04em;
+}}
+.bp-callout.bp-intent-danger  {{ background: rgba(205,66,70,.15);  border-left-color: var(--intent-danger);  color: var(--intent-danger); }}
+.bp-callout.bp-intent-warning {{ background: rgba(200,118,25,.15); border-left-color: var(--intent-warning); color: var(--intent-warning); }}
+.bp-callout.bp-intent-success {{ background: rgba(35,133,81,.15);  border-left-color: var(--intent-success); color: var(--intent-success); }}
+.bp-callout.bp-intent-primary {{ background: rgba(45,114,210,.15); border-left-color: var(--intent-primary); color: var(--intent-primary); }}
+.bp-callout .bp-callout-body {{ color: var(--text); font-weight: 400; }}
+
+/* -- Tag ---------------------------------------------------------------- */
+.bp-tag {{
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px calc(var(--grid) * .6); border-radius: var(--radius);
+  font-size: var(--fs-sm); line-height: 16px; font-weight: 500;
+  background: var(--raised-bg); color: var(--text);
+  white-space: nowrap; font-family: var(--mono);
+}}
+.bp-tag.bp-minimal {{ background: transparent; box-shadow: inset 0 0 0 1px var(--divider); }}
+.bp-tag.bp-intent-success {{ background: rgba(35,133,81,.2);  color: var(--intent-success); }}
+.bp-tag.bp-intent-warning {{ background: rgba(200,118,25,.2); color: var(--intent-warning); }}
+.bp-tag.bp-intent-danger  {{ background: rgba(205,66,70,.2);  color: var(--intent-danger); }}
+.bp-tag.bp-intent-unknown {{ background: rgba(157,63,157,.2); color: var(--intent-unknown); }}
+.bp-tag.bp-intent-primary {{ background: rgba(45,114,210,.2); color: var(--intent-primary); }}
+
+/* Freshness marks. Colour is the LAST signal, never the only one: each state
+   also carries a distinct glyph and a distinct border weight, so the console
+   still reads on a monochrome display, in direct sunlight, and to an operator
+   with a colour vision deficiency. */
+.f-live    {{ color: var(--intent-success); }}
+.f-ageing  {{ color: var(--intent-warning); border-bottom: 1px dashed currentColor; }}
+.f-stale   {{ color: var(--intent-danger);  border-bottom: 2px solid currentColor; font-weight: 600; }}
+.f-unknown {{ color: var(--intent-unknown); border-bottom: 2px dotted currentColor; font-weight: 600; }}
+.mark {{ font-family: var(--mono); font-weight: 700; margin-right: 3px; }}
+
+/* -- HTMLTable ---------------------------------------------------------- */
+.bp-html-table {{ width: 100%; border-collapse: collapse; font-size: var(--fs); }}
+.bp-html-table th {{
+  color: var(--text-muted); font-weight: 600; text-align: left;
+  font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: .06em;
+  padding: calc(var(--grid) * .8) var(--grid);
+  box-shadow: inset 0 -1px 0 var(--divider); vertical-align: bottom;
+}}
+.bp-html-table td {{
+  padding: calc(var(--grid) * .8) var(--grid);
+  box-shadow: inset 0 1px 0 var(--divider); vertical-align: top;
+}}
+.bp-html-table-condensed th, .bp-html-table-condensed td {{
+  padding: calc(var(--grid) * .4) var(--grid);
+}}
+.bp-html-table-striped tbody tr:nth-child(odd) td {{ background: rgba(143,153,168,.07); }}
+.bp-html-table .bp-numeric {{ text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }}
+.bp-html-table .bp-id {{ font-family: var(--mono); }}
+.bp-table-scroll {{ overflow-x: auto; }}
+
+/* -- NonIdealState ------------------------------------------------------ */
+.bp-non-ideal-state {{
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: calc(var(--grid) * .6); padding: calc(var(--grid) * 3) var(--grid);
+  color: var(--text-muted);
+}}
+.bp-non-ideal-state-visual {{ font-size: 28px; font-family: var(--mono); opacity: .6; }}
+.bp-non-ideal-state h4 {{ margin: 0; font-size: var(--fs-lg); color: var(--text); font-weight: 600; }}
+.bp-non-ideal-state p {{ margin: 0; max-width: 40ch; font-size: var(--fs-sm); }}
+
+/* -- Forms -------------------------------------------------------------- */
+.bp-form-group {{ display: block; margin-bottom: calc(var(--grid) * 1.2); }}
+.bp-label {{ display: block; font-weight: 600; margin-bottom: calc(var(--grid) * .3); }}
+.bp-form-helper-text {{
+  display: block; color: var(--text-muted); font-size: var(--fs-sm);
+  font-weight: 400; margin-bottom: calc(var(--grid) * .4);
+}}
+.bp-input {{
+  width: 100%; max-width: 36ch; height: var(--control-h);
+  background: var(--input-bg); color: var(--text);
+  border: none; border-radius: var(--radius);
+  box-shadow: inset 0 0 0 1px var(--divider);
+  padding: 0 var(--grid); font: inherit; font-family: var(--mono);
+}}
+.bp-input:focus {{ box-shadow: inset 0 0 0 1px var(--intent-primary); }}
+form {{ max-width: 46ch; }}
+
+/* -- Buttons ------------------------------------------------------------ */
+.bp-button {{
+  display: inline-flex; align-items: center; justify-content: center;
+  height: var(--control-h); padding: 0 var(--grid); gap: 6px;
+  border: none; border-radius: var(--radius); font: inherit; font-weight: 500;
+  background: var(--raised-bg); color: var(--text);
+  box-shadow: var(--elev-0); cursor: pointer;
+}}
+.bp-button:hover {{ filter: brightness(1.12); }}
+.bp-button:active {{ filter: brightness(.92); }}
+.bp-button.bp-intent-primary {{ background: var(--blue2); color: var(--white); }}
+.bp-button.bp-intent-success {{ background: var(--green3); color: var(--white); }}
+.bp-button.bp-intent-danger  {{ background: var(--red3);   color: var(--white); }}
+.bp-button-group {{ display: flex; gap: calc(var(--grid) * .6); flex-wrap: wrap; }}
+
+/* -- Gate / definition list --------------------------------------------- */
+.bp-gate {{
+  background: var(--raised-bg); border-radius: var(--radius);
+  padding: calc(var(--grid) * 1.2); margin-bottom: var(--grid);
+  box-shadow: var(--elev-0);
+}}
+.bp-gate + form {{ margin-top: var(--grid); }}
+.bp-dl {{
+  display: grid; grid-template-columns: max-content 1fr;
+  gap: calc(var(--grid) * .3) calc(var(--grid) * 1.2);
+  margin: var(--grid) 0; font-size: var(--fs-sm);
+}}
+.bp-dl dt {{ color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }}
+.bp-dl dd {{ margin: 0; font-family: var(--mono); }}
+
+/* -- Code block --------------------------------------------------------- */
+pre {{
+  margin: 0; padding: var(--grid); background: var(--input-bg);
+  border-radius: var(--radius); font-family: var(--mono);
+  font-size: var(--fs-sm); overflow-x: auto; max-height: 40vh;
+}}
+
+/* -- Footer ------------------------------------------------------------- */
+footer {{
+  padding: calc(var(--grid) * 1.5); color: var(--text-muted);
+  font-size: var(--fs-sm); box-shadow: inset 0 1px 0 var(--divider);
+  max-width: 90ch;
+}}
+
+@media (max-width: 640px) {{
+  .bp-navbar {{ height: auto; padding: var(--grid); flex-wrap: wrap; }}
+  main {{ padding: var(--grid); }}
+  .bp-card {{ padding: var(--grid); }}
+}}
 """
+
+
+def _tag(text: str, intent: str = "", *, minimal: bool = False) -> str:
+    """A Blueprint Tag. Used for every short status token on the page."""
+    classes = "bp-tag"
+    if minimal:
+        classes += " bp-minimal"
+    if intent:
+        classes += f" bp-intent-{intent}"
+    return f'<span class="{classes}">{esc(text)}</span>'
+
+
+def _non_ideal_state(visual: str, title: str, description: str) -> str:
+    """Blueprint's NonIdealState, and the reason this project reaches for it.
+
+    Blueprint's own guidance is that an empty, error or loading state gets a
+    visual, a title and a description rather than a blank region. That happens
+    to be the same rule this console already had for a different reason: an
+    empty cell reads as "nothing to report", and on a COP the difference
+    between *nothing to report* and *nothing arrived* is the whole point. The
+    component and the invariant agree, so the invariant gets Blueprint's
+    treatment rather than a bespoke one.
+    """
+    return (
+        '<div class="bp-non-ideal-state">'
+        f'<div class="bp-non-ideal-state-visual" aria-hidden="true">{esc(visual)}</div>'
+        f"<h4>{esc(title)}</h4><p>{esc(description)}</p></div>"
+    )
 
 
 def _cell(cell: Cell) -> str:
@@ -153,144 +449,231 @@ def _cell(cell: Cell) -> str:
 
     There is no code path in this module that renders a ``Cell``'s value
     without its freshness, which is what makes the honesty control hold at the
-    presentation layer rather than only in the model.
+    presentation layer rather than only in the model. The Blueprint Tag carries
+    the intent colour; the glyph and the label carry the same information
+    without it.
     """
     label = FRESHNESS_LABEL[cell.freshness]
     mark = FRESHNESS_MARK[cell.freshness]
+    intent = FRESHNESS_INTENT[cell.freshness]
+    shown = cell.value if cell.freshness is not Freshness.UNKNOWN else "no evidence"
     age = ""
     if cell.age_s is not None and cell.freshness is not Freshness.UNKNOWN:
-        age = f" <span class=\"note\">{esc(round(float(cell.age_s), 1))}s ago</span>"
-    shown = cell.value if cell.freshness is not Freshness.UNKNOWN else "no evidence"
+        age = (
+            '<span class="bp-text-muted bp-text-small bp-monospace-text">'
+            f" {esc(round(float(cell.age_s), 1))}s</span>"
+        )
     return (
-        f'<span class="f-{cell.freshness.value}">'
-        f'<span class="mark">{esc(mark)}</span>{esc(shown)} '
-        f'<span class="note">[{esc(label)}]</span></span>{age}'
+        f'<span class="f-{cell.freshness.value} bp-monospace-text">'
+        f'<span class="mark">{esc(mark)}</span>{esc(shown)}</span> '
+        f'{_tag(label, intent)}{age}'
+    )
+
+
+def _muted_or(value: Any, fallback: str) -> str:
+    """A value, or a muted placeholder that still says something.
+
+    Never an empty cell. Blueprint's muted text class carries the "this is
+    absent" signal, and the fallback names *what* is absent - "awaiting",
+    "none" - rather than leaving the reader to infer it from whitespace.
+    """
+    return (
+        esc(value)
+        if value
+        else f'<span class="bp-text-muted">{esc(fallback)}</span>'
+    )
+
+
+def _checks(failed: Iterable[str]) -> str:
+    items = list(failed)
+    if not items:
+        return '<span class="bp-text-muted">none</span>'
+    return " ".join(_tag(name, "danger") for name in items)
+
+
+def _card(panel_id: str, heading: str, body: str, *, aside: str = "") -> str:
+    """One Blueprint Card. Every panel is a card; every card names itself."""
+    return (
+        f'<section class="bp-card bp-elevation-1" id="{esc(panel_id)}">'
+        f'<h2 class="bp-heading">{esc(heading)}{aside}</h2>{body}</section>'
     )
 
 
 def _cop(view: CopView) -> str:
-    rows = "".join(
-        "<tr>"
-        f"<td>{esc(card.platform_id)}</td>"
-        f"<td>{_cell(card.verdict)}</td>"
-        f"<td>{_cell(card.role)}</td>"
-        f"<td>{esc(', '.join(card.failed_checks) or '-')}</td>"
-        f"<td>{esc(card.policy_version)}</td>"
-        "</tr>"
-        for card in view.platforms
+    if view.platforms:
+        rows = "".join(
+            "<tr>"
+            f'<td class="bp-id">{esc(card.platform_id)}</td>'
+            f"<td>{_cell(card.verdict)}</td>"
+            f"<td>{_cell(card.role)}</td>"
+            f"<td>{_checks(card.failed_checks)}</td>"
+            f'<td class="bp-id bp-text-muted">{esc(card.policy_version)}</td>'
+            "</tr>"
+            for card in view.platforms
+        )
+        table = (
+            '<div class="bp-table-scroll"><table class="bp-html-table '
+            'bp-html-table-condensed bp-html-table-striped">'
+            "<thead><tr><th>Platform</th><th>Assurance</th><th>Role</th>"
+            "<th>Failed checks</th><th>Policy</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table></div>"
+        )
+    else:
+        table = _non_ideal_state(
+            "?",
+            "No platforms reporting",
+            "No assurance evidence has reached the fabric. This is an absence of "
+            "evidence, not an all-clear.",
+        )
+
+    counts = " ".join(
+        _tag(f"{k} {v}", "primary" if k == "total" else "", minimal=k != "total")
+        for k, v in sorted(view.counts.items())
     )
-    if not rows:
-        rows = '<tr><td colspan="5" class="f-unknown">? no platforms reporting '
-        rows += '<span class="note">[NO EVIDENCE]</span></td></tr>'
-    counts = ", ".join(f"{esc(k)}={esc(v)}" for k, v in sorted(view.counts.items()))
-    return f"""<section id="cop">
-<h2>Common operational picture</h2>
-<p>Mission <strong>{esc(view.mission_id or 'none')}</strong> &middot;
-verdict {_cell(view.mission_verdict)}</p>
-<div class="scroll"><table>
-<thead><tr><th>Platform</th><th>Assurance</th><th>Role</th>
-<th>Failed checks</th><th>Policy</th></tr></thead>
-<tbody>{rows}</tbody></table></div>
-<p class="note">Counts: {counts or 'none'} &middot; evidence timeout
-{esc(view.evidence_timeout_s)}s &middot; provenance:
-{esc(', '.join(view.provenance) or 'none')}</p>
-<p class="note">This picture is built from platform self-assessments that
-crossed the mesh. It does not fuse radar, RF, satellite or external ISR - see
-docs/FRS_TRACEABILITY.md FR-2.3.1.</p>
-</section>"""
+    return _card(
+        "cop",
+        "Common operational picture",
+        f'<p class="bp-running-text">Mission {_tag(view.mission_id or "none", "primary")} '
+        f"verdict {_cell(view.mission_verdict)}</p>"
+        f"{table}"
+        f'<p class="bp-running-text bp-text-small" style="margin-top:10px">{counts}</p>'
+        f'<p class="bp-text-muted bp-text-small">Evidence timeout '
+        f"{esc(view.evidence_timeout_s)}s &middot; provenance "
+        f"{esc(', '.join(view.provenance) or 'none')}</p>"
+        '<p class="bp-text-muted bp-text-small">Built from platform '
+        "self-assessments that crossed the mesh. This picture does not fuse "
+        "radar, RF, satellite or external ISR &mdash; see "
+        "docs/FRS_TRACEABILITY.md FR-2.3.1.</p>",
+    )
 
 
 def _fleet(view: FleetView) -> str:
-    rows = "".join(
-        "<tr>"
-        f"<td>{esc(card.platform_id)}</td>"
-        f"<td>{esc(card.type)}</td>"
-        f"<td>{esc(card.group)}</td>"
-        f"<td>{esc(round(card.readiness, 3))}</td>"
-        f"<td>{esc(round(card.battery, 3))}</td>"
-        f"<td>{esc(card.current_role)}</td>"
-        f"<td>{_cell(card.last_seen)}</td>"
-        "</tr>"
-        for card in view.assets
+    if view.assets:
+        rows = "".join(
+            "<tr>"
+            f'<td class="bp-id">{esc(card.platform_id)}</td>'
+            f"<td>{esc(card.type)}</td>"
+            f'<td class="bp-numeric">{esc(card.group)}</td>'
+            f'<td class="bp-numeric">{esc(round(card.readiness, 3))}</td>'
+            f'<td class="bp-numeric">{esc(round(card.battery, 3))}</td>'
+            f"<td>{_tag(card.current_role, 'primary', minimal=True)}</td>"
+            f"<td>{_cell(card.last_seen)}</td>"
+            "</tr>"
+            for card in view.assets
+        )
+        table = (
+            '<div class="bp-table-scroll"><table class="bp-html-table '
+            'bp-html-table-condensed bp-html-table-striped">'
+            "<thead><tr><th>Platform</th><th>Type</th><th>UAS group</th>"
+            "<th>Readiness</th><th>Battery</th><th>Mission role</th>"
+            "<th>Last seen</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table></div>"
+        )
+    else:
+        table = _non_ideal_state(
+            "-",
+            "No assets in view",
+            "The registry returned nothing for this operator's echelon.",
+        )
+
+    breakdown = " ".join(
+        _tag(f"{k} {v}", minimal=True) for k, v in sorted(view.readiness_breakdown.items())
     )
-    breakdown = ", ".join(
-        f"{esc(k)}={esc(v)}" for k, v in sorted(view.readiness_breakdown.items())
+    aside = _tag(f"readiness {round(view.fleet_readiness, 3)}", "primary")
+    filt = _tag(f"echelon {view.echelon_filter}", "warning") if view.echelon_filter else ""
+    return _card(
+        "fleet",
+        "Fleet",
+        f"{table}"
+        f'<p class="bp-running-text bp-text-small" style="margin-top:10px">{breakdown}</p>'
+        '<p class="bp-text-muted bp-text-small">"UAS group" is the NATO platform '
+        "class, not an organisational echelon. This system models no unit "
+        "hierarchy (FR-2.1.2, GAP).</p>",
+        aside=f" {aside}{filt}",
     )
-    filt = (
-        f" &middot; echelon filter: {esc(view.echelon_filter)}"
-        if view.echelon_filter
-        else ""
-    )
-    return f"""<section id="fleet">
-<h2>Fleet</h2>
-<div class="scroll"><table>
-<thead><tr><th>Platform</th><th>Type</th><th>UAS group</th><th>Readiness</th>
-<th>Battery</th><th>Mission role</th><th>Last seen</th></tr></thead>
-<tbody>{rows or '<tr><td colspan="7">no assets</td></tr>'}</tbody></table></div>
-<p class="note">Fleet readiness {esc(round(view.fleet_readiness, 3))} &middot;
-{breakdown or 'no breakdown'}{filt}</p>
-<p class="note">"UAS group" is the NATO platform class, not an organisational
-echelon. This system does not model a unit hierarchy (FR-2.1.2, GAP).</p>
-</section>"""
 
 
 def _mro(view: MroView) -> str:
-    rows = "".join(
-        "<tr>"
-        f"<td>{esc(card.platform_id)}</td>"
-        f"<td>{esc(card.component)}</td>"
-        f"<td>{esc(card.state)}</td>"
-        f"<td>{esc(card.gate_name)}</td>"
-        f"<td>{esc('yes' if card.awaiting_decision else 'no')}</td>"
-        f"<td>{esc(card.decided_by or '-')}</td>"
-        "</tr>"
-        for card in view.work_orders
-    )
-    return f"""<section id="mro">
-<h2>Maintenance ({esc(len(view.awaiting))} awaiting decision)</h2>
-<div class="scroll"><table>
-<thead><tr><th>Platform</th><th>Component</th><th>State</th><th>Gate</th>
-<th>Awaiting</th><th>Decided by</th></tr></thead>
-<tbody>{rows or '<tr><td colspan="6">no work orders</td></tr>'}</tbody>
-</table></div></section>"""
+    if view.work_orders:
+        rows = "".join(
+            "<tr>"
+            f'<td class="bp-id">{esc(card.platform_id)}</td>'
+            f"<td>{esc(card.component)}</td>"
+            f"<td>{_tag(card.state, 'warning' if card.awaiting_decision else 'success')}</td>"
+            f'<td class="bp-id bp-text-muted">{esc(card.gate_name)}</td>'
+            f"<td>{_muted_or(card.decided_by, 'awaiting')}</td>"
+            "</tr>"
+            for card in view.work_orders
+        )
+        body = (
+            '<div class="bp-table-scroll"><table class="bp-html-table '
+            'bp-html-table-condensed bp-html-table-striped">'
+            "<thead><tr><th>Platform</th><th>Component</th><th>State</th>"
+            "<th>Gate</th><th>Decided by</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table></div>"
+        )
+    else:
+        body = _non_ideal_state(
+            "-", "No work orders", "Nothing is queued for maintenance approval."
+        )
+    aside = _tag(f"{len(view.awaiting)} awaiting", "warning" if view.awaiting else "")
+    return _card("mro", "Maintenance", body, aside=f" {aside}")
 
 
 def _gates(view: GateView) -> str:
     if not view.gates:
-        return '<section id="gates"><h2>Human gates</h2><p>No gate is open.</p></section>'
+        return _card(
+            "gates",
+            "Human gates",
+            _non_ideal_state(
+                "-",
+                "No gate is open",
+                "Nothing is currently waiting on a human decision.",
+            ),
+        )
+
     blocks = []
     for gate in view.gates:
         blocks.append(
-            f"""<div class="gate">
-<strong>{esc(gate.gate_name)}</strong> &middot; step {esc(gate.step_id)}
-&middot; instance {esc(gate.workflow_instance_id)}
-<dl>
-<dt>Notify</dt><dd>{esc(gate.notify or '-')}</dd>
-<dt>Escalates to</dt><dd>{esc(gate.escalate_to or '-')}</dd>
-<dt>Timeout</dt><dd>{esc(gate.timeout_s)}s (opened {esc(gate.opened_at)},
-deadline {esc(gate.deadline)})</dd>
-<dt>If nobody answers</dt><dd><strong>{esc(gate.on_timeout or '-')}</strong></dd>
-<dt>Escalated</dt><dd>{esc('yes' if gate.escalated else 'no')}</dd>
-<dt>Reason</dt><dd>{esc(gate.reason or '-')}</dd>
-</dl>
-<form method="post" action="/gate">
-<input type="hidden" name="instance_id" value="{esc(gate.workflow_instance_id)}">
-<input type="hidden" name="step_id" value="{esc(gate.step_id)}">
-<label>Rationale (required)
-<input name="rationale" required
- placeholder="Why this decision - recorded permanently and attributed to you">
-</label>
-<div><button name="decision" value="approve" type="submit">Approve</button>
-<button name="decision" value="deny" type="submit">Deny</button></div>
-</form></div>"""
+            f'<div class="bp-gate">'
+            f'<div class="bp-heading">{esc(gate.gate_name)}'
+            f"{_tag(gate.step_id, 'primary', minimal=True)}"
+            f"{_tag('escalated', 'danger') if gate.escalated else ''}</div>"
+            f'<dl class="bp-dl">'
+            f"<dt>Instance</dt><dd>{esc(gate.workflow_instance_id)}</dd>"
+            f"<dt>Notify</dt><dd>{esc(gate.notify or '-')}</dd>"
+            f"<dt>Escalates to</dt><dd>{esc(gate.escalate_to or '-')}</dd>"
+            f"<dt>Opened</dt><dd>{esc(gate.opened_at)}</dd>"
+            f"<dt>Deadline</dt><dd>{esc(gate.deadline)} ({esc(gate.timeout_s)}s)</dd>"
+            f"<dt>If nobody answers</dt><dd>{_tag(gate.on_timeout or '-', 'danger')}</dd>"
+            f"<dt>Reason</dt><dd>{esc(gate.reason or '-')}</dd>"
+            f"</dl>"
+            f'<form method="post" action="/gate">'
+            f'<input type="hidden" name="instance_id" value="{esc(gate.workflow_instance_id)}">'
+            f'<input type="hidden" name="step_id" value="{esc(gate.step_id)}">'
+            f'<div class="bp-form-group"><label class="bp-label" '
+            f'for="rationale-{esc(gate.step_id)}">Rationale'
+            f'<span class="bp-form-helper-text">Required. Recorded permanently '
+            f"and attributed to you.</span></label>"
+            f'<input class="bp-input" id="rationale-{esc(gate.step_id)}" '
+            f'name="rationale" required '
+            f'placeholder="Why this decision"></div>'
+            f'<div class="bp-button-group">'
+            f'<button class="bp-button bp-intent-success" name="decision" '
+            f'value="approve" type="submit">Approve</button>'
+            f'<button class="bp-button bp-intent-danger" name="decision" '
+            f'value="deny" type="submit">Deny</button></div>'
+            f"</form></div>"
         )
-    return (
-        '<section id="gates"><h2>Human gates</h2>'
-        + "".join(blocks)
-        + '<p class="note">A gate shows its own terms - who else was notified, '
-        "where it escalates, and what the system does if nobody answers - "
-        "because a decision made without them is not an accountable one.</p>"
-        "</section>"
+    return _card(
+        "gates",
+        "Human gates",
+        "".join(blocks)
+        + '<p class="bp-text-muted bp-text-small">A gate shows its own terms '
+        "&mdash; who else was notified, where it escalates, and what the system "
+        "does if nobody answers &mdash; because a decision made without them is "
+        "not an accountable one.</p>",
+        aside=f" {_tag(str(len(view.gates)), 'warning')}",
     )
 
 
@@ -301,67 +684,96 @@ def _intent_form() -> str:
     cannot express a waypoint" testable: a test reads the rendered HTML and
     asserts that no input exists outside the allowlist.
     """
-    fields = []
-    for field_spec in INTENT_FORM:
-        if field_spec.kind == "roles":
+    groups = []
+    for spec in INTENT_FORM:
+        if spec.kind == "roles":
             control = (
-                f'<input name="{esc(field_spec.key)}" '
-                'placeholder="search, track" value="search">'
+                f'<input class="bp-input" id="f-{esc(spec.key)}" '
+                f'name="{esc(spec.key)}" value="search" placeholder="search, track">'
             )
         else:
-            kind = "number" if field_spec.kind == "number" else "text"
+            kind = "number" if spec.kind == "number" else "text"
             step = ' step="any"' if kind == "number" else ""
-            required = " required" if field_spec.required else ""
+            required = " required" if spec.required else ""
             control = (
-                f'<input type="{kind}"{step}{required} name="{esc(field_spec.key)}">'
+                f'<input class="bp-input" id="f-{esc(spec.key)}" type="{kind}"'
+                f'{step}{required} name="{esc(spec.key)}">'
             )
-        fields.append(
-            f"<label>{esc(field_spec.label)}"
-            f'<span class="help">{esc(field_spec.help_text)}</span>{control}</label>'
+        groups.append(
+            f'<div class="bp-form-group">'
+            f'<label class="bp-label" for="f-{esc(spec.key)}">{esc(spec.label)}'
+            f'<span class="bp-form-helper-text">{esc(spec.help_text)}</span>'
+            f"</label>{control}</div>"
         )
-    return f"""<section id="intent">
-<h2>Mission intent</h2>
-<form method="post" action="/intent">{''.join(fields)}
-<div><button type="submit">Submit intent</button></div></form>
-<p class="note">Intent describes <em>what</em> and <em>where</em>. There is no
-waypoint, route or heading field here and there is no way to add one from this
-layer: the shape is frozen in apexforge.contracts under ADR-001, and the edge
-decides how to fly the area. See ADR-005.</p>
-</section>"""
+    return _card(
+        "intent",
+        "Mission intent",
+        f'<form method="post" action="/intent">{"".join(groups)}'
+        '<div class="bp-button-group">'
+        '<button class="bp-button bp-intent-primary" type="submit">'
+        "Submit intent</button></div></form>"
+        '<p class="bp-text-muted bp-text-small">Intent describes <em>what</em> '
+        "and <em>where</em>. There is no waypoint, route or heading field here "
+        "and none can be added from this layer: the shape is frozen in "
+        "apexforge.contracts under ADR-001, and the edge decides how to fly the "
+        "area. See ADR-005.</p>",
+    )
 
 
 def _audit(view: AuditView) -> str:
+    verdict_intent = {"pass": "success", "fail": "danger", "unknown": "unknown"}
     rows = "".join(
         "<tr>"
-        f"<td>{esc(r.get('timestamp', ''))}</td>"
-        f"<td>{esc(r.get('event_type', ''))}</td>"
-        f"<td>{esc(r.get('assurance_verdict', ''))}</td>"
-        f"<td>{esc(r.get('operator_id') or r.get('platform_id') or r.get('orchestrator_id') or '-')}</td>"
+        f'<td class="bp-id bp-text-muted">{esc(r.get("timestamp", ""))}</td>'
+        f'<td class="bp-id">{esc(r.get("event_type", ""))}</td>'
+        f'<td>{_tag(str(r.get("assurance_verdict", "")), verdict_intent.get(str(r.get("assurance_verdict", "")), ""), minimal=True)}</td>'
+        f'<td class="bp-id">{esc(r.get("operator_id") or r.get("platform_id") or r.get("orchestrator_id") or "-")}</td>'
         "</tr>"
         for r in list(view.events)[-50:]
     )
+    body = (
+        '<div class="bp-table-scroll"><table class="bp-html-table '
+        'bp-html-table-condensed bp-html-table-striped">'
+        "<thead><tr><th>Timestamp</th><th>Event</th><th>Verdict</th>"
+        "<th>Actor</th></tr></thead>"
+        f"<tbody>{rows}</tbody></table></div>"
+        if rows
+        else _non_ideal_state("-", "No audit records", "Nothing has been recorded yet.")
+    )
     truncated = (
-        f'<p class="banner">Showing {esc(view.shown)} of {esc(view.total)} records. '
-        "This is not the whole trail.</p>"
+        '<div class="bp-callout bp-intent-warning" role="status">'
+        '<div class="bp-callout-title">TRUNCATED</div>'
+        f'<div class="bp-callout-body">Showing {esc(view.shown)} of '
+        f"{esc(view.total)} records. This is not the whole trail.</div></div>"
         if view.truncated
         else ""
     )
-    return f"""<section id="audit">
-<h2>Audit ({esc(view.total)} records, {esc(len(view.human_decisions))} human decisions)</h2>
-{truncated}
-<div class="scroll"><table>
-<thead><tr><th>Timestamp</th><th>Event</th><th>Verdict</th><th>Actor</th></tr></thead>
-<tbody>{rows or '<tr><td colspan="4">no records</td></tr>'}</tbody>
-</table></div></section>"""
+    aside = (
+        f" {_tag(f'{view.total} records', minimal=True)}"
+        f"{_tag(f'{len(view.human_decisions)} human', 'primary', minimal=True)}"
+    )
+    return _card("audit", "Audit", f"{truncated}{body}", aside=aside)
 
 
 def _replay(view: ReplayView) -> str:
-    return f"""<section id="replay">
-<h2>Replay: {esc(view.mission_id)} ({esc(view.step_count)} events)</h2>
-<div class="scroll"><pre>{esc(json.dumps([dict(e) for e in view.events], indent=2, default=str))}</pre></div>
-<p class="note">Reconstructed from the append-only audit log, not from a
-separate recording - so replay and the audit trail cannot disagree.</p>
-</section>"""
+    body = (
+        f"<pre>{esc(json.dumps([dict(e) for e in view.events], indent=2, default=str))}</pre>"
+        if view.events
+        else _non_ideal_state(
+            "-",
+            "Nothing to replay",
+            f"The audit log holds no events for mission {view.mission_id}.",
+        )
+    )
+    return _card(
+        "replay",
+        f"Replay: {view.mission_id}",
+        body
+        + '<p class="bp-text-muted bp-text-small">Reconstructed from the '
+        "append-only audit log, not from a separate recording &mdash; so replay "
+        "and the audit trail cannot disagree.</p>",
+        aside=f" {_tag(f'{view.step_count} events', minimal=True)}",
+    )
 
 
 _PANEL_RENDERERS = {
@@ -392,43 +804,68 @@ def render_console(view: ConsoleView, *, message: str = "") -> str:
     operator may not see is never rendered, and its data never reaches this
     function in the first place.
     """
-    nav = "".join(
-        f'<a href="#{esc(panel.value)}">{esc(_PANEL_TITLE[panel])}</a>'
+    tabs = "".join(
+        f'<a class="bp-tab" href="#{esc(panel.value)}">{esc(_PANEL_TITLE[panel])}</a>'
         for panel in view.panels
     )
     body = "".join(_PANEL_RENDERERS[panel](view) for panel in view.panels)
 
     cop = view.cop
     if cop is not None and cop.degraded:
-        banner = f'<p class="banner">DEGRADED &mdash; {esc(cop.banner)}</p>'
+        banner = (
+            '<div class="bp-callout bp-intent-danger" role="alert">'
+            '<div class="bp-callout-title">DEGRADED</div>'
+            f'<div class="bp-callout-body">{esc(cop.banner)}</div></div>'
+        )
     elif cop is not None:
-        banner = '<p class="banner ok">All reporting platforms live.</p>'
+        banner = (
+            '<div class="bp-callout bp-intent-success" role="status">'
+            '<div class="bp-callout-title">NOMINAL</div>'
+            '<div class="bp-callout-body">All reporting platforms live.</div></div>'
+        )
     else:
         banner = ""
 
-    notice = f'<p class="banner">{esc(message)}</p>' if message else ""
+    notice = (
+        '<div class="bp-callout bp-intent-primary" role="status">'
+        f'<div class="bp-callout-body">{esc(message)}</div></div>'
+        if message
+        else ""
+    )
+    banners = (
+        f'<div style="padding:15px 15px 0;display:grid;gap:10px">{notice}{banner}</div>'
+        if (notice or banner)
+        else ""
+    )
 
-    return f"""<header>
-<h1>APEXFORGE CONSOLE</h1>
-<span class="who">{esc(view.operator.label)}
-<span class="role">{esc(view.operator.role.value)}</span></span>
-</header>
-<nav>{nav}</nav>
-{notice}{banner}
-<main>{body or '<section><h2>No panels</h2><p>This role grants no panels.</p></section>'}</main>
+    return f"""<nav class="bp-navbar">
+<div class="bp-navbar-group">
+<span class="bp-navbar-heading">APEXFORGE</span>
+<span class="bp-navbar-divider"></span>
+<span class="bp-text-muted bp-text-small">OPERATOR CONSOLE</span>
+</div>
+<div class="bp-navbar-group bp-align-right">
+<span class="bp-monospace-text">{esc(view.operator.label)}</span>
+{_tag(view.operator.role.value, "primary")}
+</div>
+</nav>
+<div class="bp-tab-list" role="tablist">{tabs}</div>
+{banners}
+<main>{body or _non_ideal_state("-", "No panels", "This role grants no panels.")}</main>
 <footer>
-Operator identity is asserted by this console, not verified - ApexForge has no
-authentication or transport security (FR-2.7.1, open GAP). Nothing here can
-command a platform directly, and no effector or engagement capability exists in
-this system by design.
+Operator identity is asserted by this console, not verified &mdash; ApexForge
+has no authentication or transport security (FR-2.7.1, open GAP). Nothing here
+can command a platform directly, and no effector or engagement capability
+exists in this system by design (ADR-005).
 </footer>"""
 
 
 def render_page(view: ConsoleView, *, message: str = "") -> str:
     """A complete, self-contained HTML document. No external requests."""
     return f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
+<html lang="en" class="bp-dark"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
 <title>ApexForge console &middot; {esc(view.operator.label)}</title>
 <style>{STYLESHEET}</style></head>
 <body>{render_console(view, message=message)}</body></html>"""

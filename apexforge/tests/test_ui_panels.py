@@ -430,7 +430,8 @@ def test_a_get_returns_a_complete_page_with_hardened_headers(running):
     assert headers["X-Content-Type-Options"] == "nosniff"
     assert "default-src 'none'" in headers["Content-Security-Policy"]
     assert body.startswith("<!doctype html>")
-    assert "APEXFORGE CONSOLE" in body
+    assert 'class="bp-dark"' in body, "dark is the default theme, not a preference"
+    assert "bp-navbar-heading" in body and "APEXFORGE" in body
 
 
 def test_the_state_endpoint_serves_the_same_view_as_json(running):
@@ -750,7 +751,7 @@ def test_the_demo_console_wires_real_components_not_fixture_data():
     assert app.console.orchestrator is harness.orchestrator
 
     status, _ctype, body = app.get("/", {})
-    assert status == 200 and "APEXFORGE CONSOLE" in body
+    assert status == 200 and "bp-navbar-heading" in body
 
 
 def test_the_demo_console_can_be_started_degraded_on_purpose():

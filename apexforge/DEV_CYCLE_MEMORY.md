@@ -671,3 +671,63 @@ stripped first so the modules can explain why effector control does not exist
 without tripping the guard that ensures it does not. Behavioural tests prove the
 current path is safe; structural tests prove the unsafe path does not exist —
 and R-22 and R-29 both got past behavioural tests.
+
+### Entry 015 — Restyled to Blueprint, and the one mapping the code refuses
+
+Rebuilt the console's presentation layer to **Blueprint**, Palantir's design
+system for data-dense desktop applications. 1121 tests, 98.90% coverage,
+verify.sh green. Every IX invariant test from Entry 014 passed **unchanged**
+through the restyle, which is the result worth recording: the freshness
+controls, panel-absence rules and form allowlists were properties of the view
+model and the markup contract, not of the stylesheet, so swapping the entire
+visual language touched two brand-string assertions and nothing else.
+
+**Blueprint-conformant, not Blueprint-consuming.** Blueprint ships as a React +
+CSS package; this console loads nothing external, because it must render on a
+tablet with no network — which matters most when the thing it reports *is* a
+link failure. So the tokens and component patterns are implemented directly.
+That distinction decays into "we were inspired by it" unless something checks,
+so conformance is tested: every hex in the stylesheet must be a member of
+`BLUEPRINT_PALETTE`, **every rgba tint must be a palette colour at opacity**
+(a hand-mixed rgba is how a palette quietly grows a forty-first colour), the
+palette itself is spot-checked against Blueprint's published values, and the
+10px grid metrics are asserted. Consistency and correctness are checked
+separately — the first two tests would still pass if the palette table were
+quietly edited.
+
+**The mapping the code refuses, which is the entry's real content.** Blueprint's
+intents are a severity ladder — PRIMARY, SUCCESS, WARNING, DANGER — and the
+obvious mapping puts `UNKNOWN` on DANGER, because it is the worst-looking state.
+That mapping is wrong. *"No evidence has ever arrived"* is not a severity, it is
+an **absence**, and it is not the same situation as *"this platform is
+failing"*: the two are troubleshot differently, which is the entire reason
+`Freshness` distinguishes them. Putting both on red would collapse the
+distinction the view model exists to preserve — at the last step, in the
+stylesheet, after every layer above it had been careful.
+
+`UNKNOWN` therefore takes extended-palette **Violet**, deliberately off the
+intent ladder, and a test asserts `FRESHNESS_INTENT[UNKNOWN] != "danger"`.
+
+The general lesson: **a design system's defaults encode its own model of the
+domain, and where that model disagrees with yours, the disagreement surfaces as
+a colour choice that looks like a detail.** Adopting a system wholesale is how a
+semantic distinction gets lost without anyone deciding to lose it.
+
+**Where the two agreed, Blueprint improved the rule.** `NonIdealState` — its
+pattern for empty regions: a visual, a title, a description, never blank space.
+This project already required that an empty COP must not read as an all-clear.
+Same rule from two directions, so the invariant now gets Blueprint's treatment
+rather than a bespoke one: the empty COP reads *"No platforms reporting — this
+is an absence of evidence, not an all-clear."*
+
+**Additive, not conflicting, on colour.** Blueprint intents are colour; this
+console's rule is that status is never colour alone. Both hold: the intent
+carries the colour, and a distinct glyph (`~`, `!`, `?`) plus a distinct border
+weight carry the same information to an operator on a monochrome display, in
+sunlight, or with a colour vision deficiency. Asserted per state.
+
+Dark is the default theme rather than a preference (Blueprint ships dark
+first-class; an ops console is read in a dim room for hours), focus rings appear
+for the keyboard and not the mouse, and identifiers and figures are monospaced
+with `tabular-nums` — Palantir's data-dense convention, whose reason is that
+identifiers are read by scanning a column, which proportional type defeats.

@@ -484,3 +484,20 @@ def test_a_malformed_intent_becomes_a_message_not_a_crash(app):
 def test_an_unknown_route_is_404(app):
     assert app.get("/secret", {})[0] == 404
     assert app.post("/secret", {}, {})[0] == 404
+
+
+def test_a_failed_check_is_rendered_as_a_danger_tag_not_as_prose(live):
+    """A failed check is scannable in a column of platforms, or it is missed."""
+    from apexforge.contracts import AssuranceEvidence
+
+    live.fabric.ingest(
+        live.platforms[0],
+        Verdict.FAIL,
+        AssuranceEvidence(checks={"geofence": False, "battery": True}),
+    )
+    page = render_page(_builder(live).console(COMMANDER))
+
+    assert 'class="bp-tag bp-intent-danger">geofence<' in page
+    assert '<span class="bp-text-muted">none</span>' in page, (
+        "platforms with nothing failing must say 'none', never show an empty cell"
+    )

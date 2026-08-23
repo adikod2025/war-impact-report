@@ -60,7 +60,91 @@ The four states, and what each tells an operator:
 "this platform never reported" are troubleshot differently, so the model must
 tell them apart rather than collapsing both into "missing".
 
-## 2. Human-factors rules, and the reason for each
+## 2. The design system: Blueprint (Palantir)
+
+The console is built to **[Blueprint](https://blueprintjs.com)**, Palantir's
+open-source design system for data-dense desktop applications — the same
+language behind Gotham and Foundry.
+
+**What is actually the case, stated precisely.** Blueprint ships as a React +
+CSS package. This console loads **nothing external** — no npm bundle, no CDN,
+no webfont — because it has to render on a tablet with no network, which
+matters most when the thing it is reporting *is* a link failure. So Blueprint's
+**tokens and component patterns are implemented directly** in `render.py`, and
+the page stays a single self-contained document. It is Blueprint-conformant, not
+Blueprint-consuming, and the difference is worth naming rather than blurring.
+
+That kind of claim decays into "we were inspired by it" unless something checks,
+so conformance is **tested**, not asserted:
+
+| Test | What it holds |
+|---|---|
+| `test_every_hex_colour_in_the_stylesheet_is_a_blueprint_palette_value` | Every hex in the stylesheet is a member of `BLUEPRINT_PALETTE`. No hand-picked colours. |
+| `test_every_rgba_tint_is_a_blueprint_palette_colour_at_opacity` | The translucent surfaces too — a hand-mixed `rgba` is the usual way a palette quietly grows a forty-first colour. |
+| `test_the_palette_carries_blueprints_published_anchor_values` | Spot-checks the table against Blueprint's published hexes. The two tests above check *consistency*; this one checks *correctness*. |
+| `test_layout_metrics_derive_from_the_ten_pixel_grid` | `$pt-grid-size` 10px, `$pt-border-radius` 2px, navbar 50px, control 30px, base 14px, `$pt-line-height` 1.28581. |
+| `test_the_console_loads_no_blueprint_assets_over_the_network` | No `<script>`, `<link>`, `@import`, or any `http(s)` URL. |
+
+**Components used**, mapped to their Blueprint counterparts: Navbar (with
+`navbar-group`/`navbar-divider`), Tabs (as anchors, so the page needs no
+script), **Card** with elevation for every panel, **Callout** with intents for
+the degraded banner and the truncation notice, **Tag** for every short status
+token, **HTMLTable** in its `condensed`+`striped` variants, **NonIdealState**
+for every empty region, **FormGroup**/`bp-label`/`bp-form-helper-text`/`bp-input`
+for the intent and gate forms, and **Button** with intents.
+
+**Dark is the default theme, not a preference.** Blueprint ships dark as a
+first-class mode and an operations console is read in a dim room for hours. The
+document carries `class="bp-dark"`; a light palette is defined under
+`prefers-color-scheme: light` for a lit briefing space.
+
+**Focus rings appear for the keyboard and not for the mouse**, per Blueprint's
+own behaviour (`:focus:not(:focus-visible)`). A console driven under time
+pressure is driven from the keyboard.
+
+**Identifiers and figures are monospaced**, with `tabular-nums` on numeric
+columns. Palantir's data-dense convention, and the reason for it is that
+identifiers are read by scanning a column, which proportional type defeats.
+
+### Where Blueprint and this project's honesty rule had to be reconciled
+
+Blueprint's **intents are a severity ladder** — `PRIMARY`, `SUCCESS`, `WARNING`,
+`DANGER` — and the obvious mapping puts `UNKNOWN` on `DANGER`, because it is the
+worst-looking state. **That mapping is wrong here and the code refuses it.**
+
+"No evidence has ever arrived" is not a severity, it is an *absence*, and it is
+not the same situation as "this platform is failing" — the two are troubleshot
+differently, which is the whole reason `Freshness` distinguishes them. Putting
+both on red would collapse the distinction the view model exists to preserve, at
+the last step, in the stylesheet.
+
+So `UNKNOWN` takes **extended-palette Violet**, deliberately *off* the intent
+ladder, and a test asserts `FRESHNESS_INTENT[UNKNOWN] != "danger"`.
+
+| Freshness | Blueprint intent | Palette | Glyph | Border |
+|---|---|---|---|---|
+| `live` | SUCCESS | Green3/5 | — | — |
+| `ageing` | WARNING | Orange3/5 | `~` | dashed |
+| `STALE` | DANGER | Red3/5 | `!` | solid 2px |
+| `NO EVIDENCE` | *(none — off-ladder)* | Violet3/5 | `?` | dotted 2px |
+
+The glyph and border columns are the second reconciliation: **Blueprint intents
+are colour, and this console's rule is that status is never colour alone.** The
+two are additive rather than in conflict — Blueprint gets to carry the intent,
+and the glyph and border carry the same information to an operator reading a
+monochrome display, in direct sunlight, or with a colour vision deficiency. A
+test asserts every degraded state has a distinct glyph *and* a non-colour border
+treatment.
+
+Blueprint's **NonIdealState** went the other way and made an existing rule
+better. Blueprint's guidance is that an empty region gets a visual, a title and
+a description rather than blank space; this project already required that an
+empty COP must not read as an all-clear. Same rule, arrived at from two
+directions, so the invariant now gets Blueprint's treatment rather than a
+bespoke one — the empty COP reads *"No platforms reporting — this is an absence
+of evidence, not an all-clear."*
+
+## 3. Human-factors rules, and the reason for each
 
 **Freshness is never signalled by colour alone.** Every stale or unknown value
 carries a word (`STALE`, `NO EVIDENCE`), a non-colour marker (`!`, `?`) and a
@@ -112,7 +196,7 @@ failure. A test asserts the absence of `<script` and of any `http` URL.
 last 200 of 4,000 records invites the reader to conclude the other 3,800 do not
 exist.
 
-## 3. Roles, and why the table looks like this
+## 4. Roles, and why the table looks like this
 
 Deny by default. An unrecognised role gets the empty permission set, so a typo
 locks an operator out rather than letting them in — the allowlist lesson R-22
@@ -136,7 +220,7 @@ is no `COMMAND_PLATFORM` (ADR-001 forbids it of everyone) and no
 `ASSIGN_EFFECTOR` (the handoff package forbids effector logic outright). A test
 asserts those names cannot appear.
 
-## 4. What the interface structurally cannot do
+## 5. What the interface structurally cannot do
 
 Four claims, each with tests in `tests/test_ui_invariants.py`. They are asserted
 against **source and rendered output** rather than behaviour where possible,
@@ -156,7 +240,7 @@ Plus: no UI source may contain a kinetic identifier (`weapon`, `engage`,
 so the modules can explain *why* effector control does not exist without
 tripping the guard that ensures it does not.
 
-## 5. What this does not build
+## 6. What this does not build
 
 Stated here rather than left to be discovered.
 
