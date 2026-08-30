@@ -1,0 +1,180 @@
+import { c } from '../rubrics.mjs';
+
+export default [
+  {
+    id: 'log-t1-conditional-cancelled',
+    strand: 'logic', moves: ['conditional'], tier: 1, difficulty: -1.35,
+    domain: 'story', register: [9, 11],
+    title: 'Did it rain?',
+    stimulus: 'The club rule says: **If it rains, practice is cancelled.** On Tuesday, practice was cancelled.',
+    prompt: 'What can you conclude about Tuesday\'s weather?',
+    mode: 'select',
+    payload: {
+      options: [
+        { id: 'a', text: 'It definitely rained.', correct: false, why: 'This is "affirming the consequent". The rule promises cancellation *if* it rains — it never promises rain is the only reason to cancel.' },
+        { id: 'b', text: 'It definitely did not rain.', correct: false, why: 'Nothing rules rain out either. Rain would have cancelled practice, and practice was cancelled.' },
+        { id: 'c', text: 'You cannot tell — practice might have been cancelled for another reason.', correct: true, why: 'Exactly. The rule is a one-way street: rain → cancelled. Cancelled tells you nothing on its own.' },
+        { id: 'd', text: 'The rule must be wrong.', correct: false, why: 'The rule is perfectly consistent with what happened.' },
+      ],
+    },
+    checks: {},
+    hints: [
+      'Think of another reason practice could be cancelled. Does the rule say that cannot happen?',
+      'The rule is an arrow that only points one way: rain → cancelled. Try walking it backwards and see if it holds.',
+      'Same shape, different case: *"If the fire alarm goes off, we go outside." We went outside. Did the alarm go off?* Not necessarily — it could have been a fire drill practice, or a PE lesson. Now answer the practice question.',
+    ],
+    bridge: 'Listen for a one-way rule today, and catch someone walking it backwards.',
+  },
+  {
+    id: 'log-t1-quantifier-somall',
+    strand: 'logic', moves: ['quantifier'], tier: 1, difficulty: -1.1,
+    domain: 'everyday', register: [9, 11],
+    title: 'Some is not all',
+    stimulus: 'True statements: **All the cats in this shelter are vaccinated.** **Some of the vaccinated animals here are dogs.**',
+    prompt: 'Which of these definitely follows?',
+    mode: 'select',
+    payload: {
+      options: [
+        { id: 'a', text: 'All the dogs here are vaccinated.', correct: false, why: '"Some vaccinated animals are dogs" says nothing about the dogs that are not in that group.' },
+        { id: 'b', text: 'Some of the animals here are vaccinated.', correct: true, why: 'Guaranteed twice over — every cat is vaccinated, and some dogs are too.' },
+        { id: 'c', text: 'All the vaccinated animals are cats.', correct: false, why: 'Contradicted directly: some of them are dogs.' },
+        { id: 'd', text: 'There are no unvaccinated animals here.', correct: false, why: 'Nothing said anything about animals that are neither cats nor those particular dogs.' },
+      ],
+    },
+    checks: {},
+    hints: [
+      'Draw two circles: one for cats, one for vaccinated animals. Where does "all cats are vaccinated" put the cat circle?',
+      'Now add a dog circle. "Some vaccinated animals are dogs" means the dog circle overlaps the vaccinated circle — but how much of it?',
+      'Worked: *All squares are rectangles. Some rectangles are red.* Does it follow that all squares are red? No — the overlap could sit entirely on the non-square part. Same structure as the shelter. Now choose.',
+    ],
+    bridge: 'Catch one "some → all" slip in a conversation or an advert this week.',
+  },
+  {
+    id: 'log-t2-selection-task',
+    strand: 'logic', moves: ['conditional', 'falsification'], tier: 2, difficulty: 0.3,
+    domain: 'data', register: [11, 14],
+    title: 'Which cards would break the rule?',
+    stimulus: 'Four cards lie on a table. Each has a **shape** on one side and a **number** on the other. You can see: [ triangle ] [ circle ] [ 7 ] [ 4 ]. Someone claims: **"Every card with a triangle on one side has an even number on the other."**',
+    prompt: 'Turn over only the cards that could **prove the claim wrong**. Which ones?',
+    mode: 'multi_select',
+    payload: {
+      options: [
+        { id: 'a', text: 'The triangle card', correct: true, why: 'If there is an odd number behind it, the claim is dead. Must turn.' },
+        { id: 'b', text: 'The circle card', correct: false, why: 'The claim says nothing about circles. Any number behind it is allowed.' },
+        { id: 'c', text: 'The 7 card', correct: true, why: 'Odd number. If there is a triangle behind it, the claim is dead. Most people miss this one.' },
+        { id: 'd', text: 'The 4 card', correct: false, why: 'Tempting, but useless. A triangle behind it confirms the claim; a circle behind it is irrelevant. Confirming is not testing.' },
+      ],
+      minSelect: 1,
+    },
+    checks: {},
+    hints: [
+      'For each card ask one question only: could what is on the *other* side make the claim false?',
+      'The 4 card is the trap. Suppose you turn it and find a triangle — the claim survives. Suppose you find a circle — the claim survives. A card that cannot possibly break the rule is not worth turning.',
+      'Rewrite the rule as an arrow: triangle → even. To break an arrow you need the start present and the end missing. So: find triangles (start present) and find odd numbers (end missing). That gives you exactly two cards.',
+    ],
+    misconceptions: [
+      { signal: 'selects the 4 card', tutorMove: 'Ask what they would learn from each possible thing on its back.' },
+    ],
+    bridge: 'When someone says "look at all the times it worked", ask what case would have proved them wrong.',
+  },
+  {
+    id: 'log-t2-fallacy-match',
+    strand: 'logic', moves: ['fallacy'], tier: 2, difficulty: 0.0,
+    domain: 'social', register: [11, 14],
+    title: 'Name the flaw',
+    stimulus: 'Five things overheard in one week.',
+    prompt: 'Match each statement to the flaw in its reasoning.',
+    mode: 'match',
+    payload: {
+      left: [
+        { id: 'l1', text: '"You cannot trust her argument about the bus route — she does not even own a car."' },
+        { id: 'l2', text: '"Either we ban phones completely or we accept that nobody will ever concentrate again."' },
+        { id: 'l3', text: '"My grandad smoked and lived to 94, so smoking is not that dangerous."' },
+        { id: 'l4', text: '"We changed the mascot in September and results went up, so the mascot worked."' },
+        { id: 'l5', text: '"Everyone in my class thinks the new rule is stupid, so it is stupid."' },
+      ],
+      right: [
+        { id: 'r1', text: 'Attacking the person, not the argument' },
+        { id: 'r2', text: 'False choice (only two options offered)' },
+        { id: 'r3', text: 'Generalising from one lucky case' },
+        { id: 'r4', text: 'After it, therefore because of it' },
+        { id: 'r5', text: 'Popularity treated as proof' },
+      ],
+      answer: { l1: 'r1', l2: 'r2', l3: 'r3', l4: 'r4', l5: 'r5' },
+    },
+    checks: {},
+    hints: [
+      'For each one, ask: what is being offered as the *reason*, and does that reason actually bear on whether the claim is true?',
+      'Two of these are about *time and coincidence* versus *numbers of people*. Separate those two first.',
+      'Worked: *"Of course he says the canteen is fine — he works there."* The reason given is about the speaker\'s position, not about the canteen. That is attacking the person. Now do the rest.',
+    ],
+    bridge: 'Spot two of these five in the wild this week and note which ones they were.',
+  },
+  {
+    id: 'log-t3-validity-vs-truth',
+    strand: 'logic', moves: ['validity'], tier: 3, difficulty: 0.9,
+    domain: 'science', register: [13, 16],
+    title: 'True, valid, both, neither',
+    stimulus: 'Argument A: "All metals conduct electricity. Copper is a metal. So copper conducts electricity."\nArgument B: "All metals conduct electricity. Copper conducts electricity. So copper is a metal."\nArgument C: "All birds can fly. Penguins are birds. So penguins can fly."',
+    prompt: 'For each argument answer **two separate questions**: (1) are the premises true? (2) does the conclusion actually follow from them? Then say what C proves about the relationship between the two questions.',
+    mode: 'structured',
+    payload: {
+      fields: [
+        { id: 'a', label: 'Argument A — premises true? conclusion follows?', required: true, minWords: 10 },
+        { id: 'b', label: 'Argument B — premises true? conclusion follows?', required: true, minWords: 10 },
+        { id: 'c', label: 'Argument C — premises true? conclusion follows?', required: true, minWords: 10 },
+        { id: 'lesson', label: 'What does C show about "true" and "follows"?', required: true, minWords: 15 },
+      ],
+      answerKey: 'A: premises true, conclusion follows (valid and sound). B: premises true but the conclusion does not follow — other things could conduct; this is affirming the consequent. C: the first premise is false, yet the reasoning is perfectly valid — if all birds could fly, penguins would. So validity is about the shape of the argument, and truth is about the world; an argument can be valid with a false premise and a false conclusion.',
+      conceptVocabulary: ['valid', 'true', 'premise', 'conclusion', 'follows', 'shape', 'form', 'sound'],
+    },
+    rubric: {
+      criteria: [c('completeness', 0.25, { name: 'Both questions answered for all three' }), c('integration', 0.35, { name: 'Keeps truth and validity apart' }), c('beyond_case', 0.4)],
+      solo: {
+        3: 'All three correctly split into truth and validity, with B identified as the invalid one.',
+        4: 'States the general principle — validity is about form, truth is about the world — and gives a fresh example of a valid argument with a false premise.',
+      },
+    },
+    checks: { requiredFields: ['a', 'b', 'c', 'lesson'], capIfMissing: { lesson: 0.6 } },
+    hints: [
+      'Answer the two questions in two separate sentences. If you find yourself writing one sentence, you are merging them.',
+      'For C, pretend you had never met a penguin and the first line were true. Would the conclusion be forced?',
+      'Worked on a different case: *"All wizards wear hats. Gandalf is a wizard. So Gandalf wears a hat." — premises: not true in our world; does it follow: yes, perfectly.* That is a valid argument you should not believe. Now write C in that shape.',
+    ],
+    misconceptions: [
+      { signal: 'calls C invalid because penguins cannot fly', tutorMove: 'Ask whether they are judging the world or the reasoning, and to answer only about the reasoning.' },
+    ],
+    bridge: 'Find an argument you agree with and check whether you agree with its *reasoning* or just its conclusion.',
+  },
+  {
+    id: 'log-t4-necessary-sufficient',
+    strand: 'logic', moves: ['necessary_sufficient', 'falsification'], tier: 4, difficulty: 1.9,
+    domain: 'everyday', register: [14, 16],
+    title: 'Enough, or just needed?',
+    stimulus: 'A school says: "Students who read for 20 minutes a day get better grades. So we are making 20 minutes of reading compulsory, and we expect grades to rise."',
+    prompt: 'Analyse the claim using **necessary vs sufficient**. Is daily reading being treated as necessary, sufficient, or both? Give one counter-case for whichever the school is assuming, and state the observation next year that would show the school was wrong.',
+    mode: 'open_short',
+    payload: {
+      maxWords: 180,
+      answerKey: 'The school is treating reading as sufficient (do this → grades rise), where the evidence at best suggests it is one contributing factor and possibly neither necessary nor sufficient. Counter-cases: students who read daily and still struggle (not sufficient); students who do not read daily and do well (not necessary). Compelled reading may also not be the same intervention as voluntary reading — the correlation could come from the kind of student who chooses to read. The falsifying observation: after a year of compulsory reading, grades unchanged or the reading gap unchanged between groups.',
+      conceptVocabulary: ['necessary', 'sufficient', 'compulsory', 'voluntary', 'counter', 'evidence', 'cause', 'chose'],
+    },
+    rubric: {
+      criteria: [c('integration', 0.3, { name: 'Uses necessary/sufficient correctly' }), c('rebuttal_real', 0.25, { name: 'Counter-case actually bites' }), c('rival_explanations', 0.25), c('beyond_case', 0.2)],
+      solo: {
+        3: 'Correctly identifies the sufficiency assumption and supplies a counter-case that fits it.',
+        4: 'Notices that compelling the behaviour may destroy the mechanism that made it work, and states a general principle about acting on correlations.',
+      },
+    },
+    checks: { minWords: { response: 50 } },
+    hints: [
+      'Write the school\'s claim as an arrow. Which direction are they walking it, and is that the direction the evidence supports?',
+      'A necessary condition is one you cannot do without. A sufficient one is enough on its own. Find a student who breaks each of those readings.',
+      'Worked shape: *"Owning running shoes is necessary for running a marathon, but nowhere near sufficient."* Now say what the school is quietly assuming about reading, and produce the student who disproves it.',
+    ],
+    misconceptions: [
+      { signal: 'treats necessary and sufficient as the same', tutorMove: 'Ask for one thing that is necessary but not sufficient, from their own life.' },
+    ],
+    bridge: 'Find a rule somewhere that assumes "do X and Y will follow" and test the assumption both ways.',
+  },
+];
