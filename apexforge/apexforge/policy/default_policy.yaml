@@ -1,0 +1,115 @@
+# ApexForge ADFMS - Policy Package (see policy_version below)
+#
+# This file is a PRODUCT ARTEFACT, not developer configuration. It is versioned,
+# signed and loaded through one path into both the Orchestrator and every
+# EdgeAgent (Pitfall 5 control). Its `policy_version` appears in every assurance
+# verdict and every high-consequence log line, so any mission's decision logic
+# can be reproduced exactly.
+#
+# Changing this file requires the same discipline as changing code: review,
+# test, version bump, and re-signing.
+policy_version: "1.1.0"
+schema_version: "1.0"
+issued: "2026-08-22"
+# v1.1.0 - added dedicated human gates for mission approval, authority
+# acceptance/release, reduced-coverage acceptance, degraded continuation,
+# contended allocation and OTA rollout. Previously these distinct decision
+# points shared three gates and so could not carry distinct timeouts or
+# escalation targets (Pitfall 4).
+issuer: "ApexForge Assurance Authority (development)"
+
+edge:
+  # Local kinematic envelope enforced onboard before any action is emitted.
+  max_speed_mps: 15.0
+  min_altitude_m: 30.0
+  max_altitude_m: 400.0
+  rtb_battery_threshold: 0.25
+
+geofence:
+  # Named exclusion volumes. An action that would enter one is rejected locally
+  # and the agent falls back to a safe hold.
+  no_fly_zones:
+    - name: CIVIL-AIRPORT-01
+      lat: 24.9576
+      lon: 46.6988
+      radius_m: 8000
+    - name: POPULATED-AREA-01
+      lat: 24.7136
+      lon: 46.6753
+      radius_m: 5000
+
+orchestrator:
+  max_trackers: 2                 # beyond this, human approval is required
+  max_platforms_per_objective: 50
+
+human_gates:
+  # Pitfall 4: every human decision point declares who is notified, how long
+  # the system waits, where it escalates, and what it does on timeout.
+  # `on_timeout` is never "approve" - that would convert a gate into a rubber stamp.
+  loi5_launch_recovery:
+    notify: mission_commander
+    timeout_s: 300
+    escalate_to: duty_officer
+    on_timeout: abort
+    rationale: "Launch and recovery authority is never implicit."
+  critical_mro_work_order:
+    notify: maintenance_controller
+    timeout_s: 900
+    escalate_to: fleet_manager
+    on_timeout: hold
+    rationale: "A grounded airframe is safer than an unapproved repair action."
+  mission_approval:
+    notify: mission_commander
+    timeout_s: 600
+    escalate_to: duty_officer
+    on_timeout: hold
+    rationale: "An unapproved mission simply does not start."
+  authority_acceptance:
+    notify: receiving_commander
+    timeout_s: 120
+    escalate_to: duty_officer
+    on_timeout: abort
+    rationale: "Custody must never be ambiguous; an unaccepted handover is aborted, not left pending."
+  authority_release:
+    notify: mission_commander
+    timeout_s: 120
+    escalate_to: duty_officer
+    on_timeout: hold
+    rationale: "The releasing station retains authority until it confirms; holding keeps custody single-valued."
+  reduced_coverage_acceptance:
+    notify: mission_commander
+    timeout_s: 300
+    escalate_to: duty_officer
+    on_timeout: hold
+    rationale: "Degraded coverage is a commander's judgement, not a default."
+  degraded_continuation:
+    notify: mission_commander
+    timeout_s: 300
+    escalate_to: duty_officer
+    on_timeout: hold
+    rationale: "Continuing under severe comms loss needs a decision; holding is the safe wait."
+  contended_allocation:
+    notify: mission_commander
+    timeout_s: 180
+    escalate_to: duty_officer
+    on_timeout: hold
+    rationale: "Competing objectives are prioritised by a human, never by an agent unilaterally."
+  ota_rollout_approval:
+    notify: software_authority
+    timeout_s: 3600
+    escalate_to: fleet_manager
+    on_timeout: hold
+    rationale: "Changing what runs on an airframe is a configuration-control act."
+  excess_trackers:
+    notify: mission_commander
+    timeout_s: 120
+    escalate_to: duty_officer
+    on_timeout: hold
+    rationale: "Custody concentration beyond policy needs human judgement."
+
+assurance:
+  required_checks:
+    - geofence
+    - battery_margin
+    - policy_version_match
+  evidence_timeout_s: 30.0
